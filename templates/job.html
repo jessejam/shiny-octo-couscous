@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Scan {{ job.job_id }} | ModelAudit Runner{% endblock %}
+
+{% block content %}
+  <section class="card result-header">
+    <div>
+      <p class="eyebrow">Live Scan</p>
+      <h1>{{ job.status_label }}</h1>
+      <p class="lede">{{ job.status_hint }}</p>
+    </div>
+    <div class="status-stack">
+      <span class="status-pill status-{{ job.status }}" data-job-status>{{ job.status_label }}</span>
+      <a class="ghost-link" href="{{ url_for('index') }}">Scan another</a>
+    </div>
+  </section>
+
+  <section class="job-grid">
+    <article class="card">
+      <p class="eyebrow">Repository</p>
+      <h2 class="wrap">{{ job.repo_url }}</h2>
+      <div class="details-list">
+        <div class="details-row">
+          <span>Job ID</span>
+          <code>{{ job.job_id }}</code>
+        </div>
+        <div class="details-row">
+          <span>Created</span>
+          <span>{{ job.created_at }}</span>
+        </div>
+        {% if job.started_at %}
+          <div class="details-row">
+            <span>Started</span>
+            <span>{{ job.started_at }}</span>
+          </div>
+        {% endif %}
+        {% if job.command_preview %}
+          <div class="details-row details-row-column">
+            <span>Command</span>
+            <code class="command-preview">{{ job.command_preview }}</code>
+          </div>
+        {% endif %}
+      </div>
+    </article>
+
+    <article class="card">
+      <p class="eyebrow">Status Feed</p>
+      <h2 data-job-hint>{{ job.status_hint }}</h2>
+      <p class="details-note">
+        This page listens for server-sent events and appends each incremental modelaudit line
+        as it arrives.
+      </p>
+    </article>
+  </section>
+
+  <section class="card console-card">
+    <div class="console-header">
+      <div>
+        <p class="eyebrow">Realtime Output</p>
+        <h2>Scanner Logs</h2>
+      </div>
+      <span class="console-indicator">streaming</span>
+    </div>
+    <div
+      class="console"
+      data-log-panel
+      aria-live="polite"
+      data-events-url="{{ url_for('job_events', job_id=job.job_id) }}"
+      data-poll-url="{{ url_for('job_poll', job_id=job.job_id) }}"
+      data-result-url="{{ url_for('job_result', job_id=job.job_id) }}"
+      data-event-count="{{ job.events|length }}"
+    >
+      {% for event in job.events %}
+        <div class="console-line console-line-{{ event.kind }}">
+          <span class="console-time">{{ event.created_at }}</span>
+          <span class="console-message">{{ event.message }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="button-row job-actions">
+    <a
+      class="button-link{% if not job.raw_report_url %} is-hidden{% endif %}"
+      data-raw-report-link
+      {% if job.raw_report_url %}href="{{ job.raw_report_url }}"{% endif %}
+    >
+      Download Raw Report
+    </a>
+  </section>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}

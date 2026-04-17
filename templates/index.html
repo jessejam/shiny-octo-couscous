@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Start Scan | ModelAudit Runner{% endblock %}
+
+{% block content %}
+  <section class="hero card">
+    <p class="eyebrow">Repository Scan</p>
+    <h1>Run a simple modelaudit check for a repository URL.</h1>
+    <p class="lede">
+      Enter the corporate repository URL, launch the scan, and watch incremental modelaudit
+      status lines arrive in real time.
+    </p>
+
+    <form class="scan-form" action="{{ url_for('start_scan') }}" method="post">
+      <label class="field-label" for="repo_url">Repository URL</label>
+      <input
+        id="repo_url"
+        name="repo_url"
+        type="url"
+        placeholder="https://artifactory.example.corp/.../model-repository"
+        required
+        autocomplete="off"
+      >
+      <button type="submit">Start Scan</button>
+    </form>
+  </section>
+
+  <section class="runtime-grid">
+    <article class="card info-card">
+      <p class="eyebrow">Runtime Mode</p>
+      <h2>{{ runtime.scanner_mode|upper }}</h2>
+      <p>{{ "Mock mode streams placeholder updates." if runtime.scanner_mode == "mock" else "Docker mode will execute the configured scanner image." }}</p>
+    </article>
+
+    <article class="card info-card">
+      <p class="eyebrow">Container Network</p>
+      <h2>{{ runtime.docker_network_mode }}</h2>
+      <p>{{ runtime.docker_network_summary }}</p>
+    </article>
+
+    <article class="card info-card">
+      <p class="eyebrow">Timeout</p>
+      <h2>{{ runtime.timeout_seconds }}s</h2>
+      <p>Maximum allowed duration for a single scan job.</p>
+    </article>
+  </section>
+
+  <section class="card details-card">
+    <div class="details-row">
+      <span>Scanner image</span>
+      <code>{{ runtime.scanner_image }}</code>
+    </div>
+    <div class="details-row details-row-column">
+      <span>Required auth env vars</span>
+      <code>{{ runtime.required_env_vars | join(', ') }}</code>
+    </div>
+    <div class="details-row details-row-column">
+      <span>Telemetry env defaults</span>
+      <code>
+        {% for key, value in runtime.container_env_defaults.items() %}
+          {{ key }}={{ value }}{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </code>
+    </div>
+    <div class="details-row">
+      <span>Extra Docker args</span>
+      <code>{{ runtime.extra_docker_args }}</code>
+    </div>
+    <p class="details-note">
+      For local UI checks without Docker, run the app with <code>SCANNER_MODE=mock</code>.
+      For the real scanner, keep <code>SCANNER_MODE=docker</code> and provide the image and any
+      extra hardening flags through environment variables. If the scan needs to reach a remote
+      repository host, avoid <code>DOCKER_NETWORK_MODE=none</code>.
+    </p>
+  </section>
+{% endblock %}

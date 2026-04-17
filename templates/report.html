@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+
+{% block title %}Report {{ job.job_id }} | ModelAudit Runner{% endblock %}
+
+{% block content %}
+  <section class="card result-header">
+    <div>
+      <p class="eyebrow">Scan Result</p>
+      <h1>Report Ready</h1>
+      <p class="lede">{{ job.repo_url }}</p>
+    </div>
+    <div class="button-row">
+      <a class="button-link" href="{{ url_for('download_report', job_id=job.job_id) }}">Save Report</a>
+      <a class="button-link button-link-muted" href="{{ url_for('index') }}">Scan Another</a>
+    </div>
+  </section>
+
+  {% if job.report_format == "json" %}
+    <section class="runtime-grid">
+      <article class="card info-card">
+        <p class="eyebrow">Scanners</p>
+        <h2>{{ report_data.scanner_names | join(", ") if report_data.scanner_names else "n/a" }}</h2>
+        <p>Scanner engines reported by modelaudit.</p>
+      </article>
+
+      <article class="card info-card">
+        <p class="eyebrow">Files Scanned</p>
+        <h2>{{ report_data.files_scanned if report_data.files_scanned is not none else "n/a" }}</h2>
+        <p>Files inspected during this run.</p>
+      </article>
+
+      <article class="card info-card">
+        <p class="eyebrow">Issues</p>
+        <h2>{{ report_data.issues | length if report_data.issues else 0 }}</h2>
+        <p>{{ "Scanner reported errors." if report_data.has_errors else "No scanner-level errors reported." }}</p>
+      </article>
+    </section>
+
+    <section class="job-grid">
+      <article class="card">
+        <p class="eyebrow">Run Details</p>
+        <div class="details-list">
+          <div class="details-row">
+            <span>Job ID</span>
+            <code>{{ job.job_id }}</code>
+          </div>
+          <div class="details-row">
+            <span>Finished</span>
+            <span>{{ job.finished_at }}</span>
+          </div>
+          <div class="details-row">
+            <span>Stored report</span>
+            <code>{{ job.report_path }}</code>
+          </div>
+          <div class="details-row">
+            <span>Started at</span>
+            <span>{{ report_data.start_time | unix_datetime }}</span>
+          </div>
+          <div class="details-row">
+            <span>Duration</span>
+            <span>{{ report_data.duration | duration_seconds }}</span>
+          </div>
+          <div class="details-row">
+            <span>Bytes scanned</span>
+            <span>{{ report_data.bytes_scanned | bytes_human }}</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <p class="eyebrow">Summary</p>
+        <h2>Report Overview</h2>
+        <p class="details-note">
+          This view follows the documented modelaudit report structure. The raw JSON is still
+          included below for debugging and future UI refinement.
+        </p>
+      </article>
+    </section>
+
+    <section class="card report-section">
+      <div class="console-header">
+        <div>
+          <p class="eyebrow">Findings</p>
+          <h2>Issues</h2>
+        </div>
+      </div>
+
+      {% if report_data.issues %}
+        <div class="issue-list">
+          {% for issue in report_data.issues %}
+            <article class="issue-card severity-{{ issue.severity | default('unknown') }}">
+              <div class="issue-topline">
+                <span class="severity-pill severity-pill-{{ issue.severity | default('unknown') }}">
+                  {{ issue.severity | default("unknown") }}
+                </span>
+                {% if issue.timestamp is defined %}
+                  <span class="issue-timestamp">{{ issue.timestamp | unix_datetime }}</span>
+                {% endif %}
+              </div>
+              <h3>{{ issue.message }}</h3>
+              {% if issue.location %}
+                <p class="issue-location">{{ issue.location }}</p>
+              {% endif %}
+              {% if issue.why %}
+                <p class="issue-why">{{ issue.why }}</p>
+              {% endif %}
+              {% if issue.details %}
+                <pre>{{ issue.details | pretty_json }}</pre>
+              {% endif %}
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="details-note">No issues were reported in this scan.</p>
+      {% endif %}
+    </section>
+
+    <section class="card report-section">
+      <div class="console-header">
+        <div>
+          <p class="eyebrow">Assets</p>
+          <h2>Scanned Files</h2>
+        </div>
+      </div>
+
+      {% if report_data.assets %}
+        <div class="asset-list">
+          {% for asset in report_data.assets %}
+            <article class="asset-card">
+              <h3>{{ asset.path }}</h3>
+              <p>{{ asset.type | default("unknown") }}</p>
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="details-note">No asset entries were included in the report.</p>
+      {% endif %}
+    </section>
+
+    <section class="card report-card">
+      <p class="eyebrow">Raw Output</p>
+      <pre>{{ report_data | pretty_json }}</pre>
+    </section>
+  {% else %}
+    <section class="job-grid">
+      <article class="card">
+        <p class="eyebrow">Run Details</p>
+        <div class="details-list">
+          <div class="details-row">
+            <span>Job ID</span>
+            <code>{{ job.job_id }}</code>
+          </div>
+          <div class="details-row">
+            <span>Finished</span>
+            <span>{{ job.finished_at }}</span>
+          </div>
+          <div class="details-row">
+            <span>Stored report</span>
+            <code>{{ job.report_path }}</code>
+          </div>
+          <div class="details-row">
+            <span>Format</span>
+            <span>Plain text</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <p class="eyebrow">Summary</p>
+        <h2>Text Report</h2>
+        <p class="details-note">
+          This scan completed successfully, but the generated file is plain text rather than JSON.
+        </p>
+      </article>
+    </section>
+
+    <section class="card report-card">
+      <p class="eyebrow">Raw Output</p>
+      <pre>{{ report_data }}</pre>
+    </section>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | ModelAudit Runner{% endblock %}
+
+{% block content %}
+  <section class="card error-card">
+    <p class="eyebrow">Error</p>
+    <h1>{{ headline }}</h1>
+    <p class="lede">{{ message }}</p>
+
+    {% if job %}
+      <div class="details-list">
+        <div class="details-row">
+          <span>Job ID</span>
+          <code>{{ job.job_id }}</code>
+        </div>
+        <div class="details-row">
+          <span>Repository</span>
+          <span class="wrap">{{ job.repo_url }}</span>
+        </div>
+        <div class="details-row">
+          <span>Status</span>
+          <span>{{ job.status_label }}</span>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="button-row">
+      {% if action_url %}
+        <a class="button-link" href="{{ action_url }}">{{ action_label }}</a>
+      {% endif %}
+      {% if job and job.report_path %}
+        <a class="button-link button-link-muted" href="{{ url_for('download_raw_report', job_id=job.job_id) }}">Download Raw Report</a>
+      {% endif %}
+      {% if secondary_action_url %}
+        <a class="button-link button-link-muted" href="{{ secondary_action_url }}">{{ secondary_action_label }}</a>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}
