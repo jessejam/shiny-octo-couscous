@@ -379,6 +379,10 @@ def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
     container_workdir = config["CONTAINER_WORKDIR"]
     command = [config["DOCKER_BINARY"], "run", "--rm"]
     passthrough_vars, explicit_vars, _ = build_container_env(config)
+    scanner_args = list(config["SCANNER_FIXED_ARGS"])
+
+    if "--stream" not in scanner_args:
+        scanner_args.append("--stream")
 
     if config["DOCKER_NETWORK_MODE"]:
         command.extend(["--network", config["DOCKER_NETWORK_MODE"]])
@@ -404,7 +408,7 @@ def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
     command.extend(config["EXTRA_DOCKER_ARGS"])
     command.append(config["SCANNER_IMAGE"])
     command.append(config["SCANNER_COMMAND"])
-    command.extend(config["SCANNER_FIXED_ARGS"])
+    command.extend(scanner_args)
     command.append(job.repo_url)
     command.extend(["--output", config["SCAN_OUTPUT_FILENAME"]])
     return command

@@ -41,7 +41,7 @@ python3 main.py
 - `DOCKER_BINARY`: Docker executable name, default `docker`
 - `SCANNER_IMAGE`: Docker image name, default `modelaudit`
 - `SCANNER_COMMAND`: command inside the container, default `modelaudit`
-- `SCANNER_FIXED_ARGS`: extra scanner arguments before the repository URL
+- `SCANNER_FIXED_ARGS`: extra scanner arguments before the repository URL; the app always adds mandatory `--stream`
 - `REQUIRED_CONTAINER_ENV_VARS`: env vars that must exist before Docker scans start, default `JFROG_URL JFROG_API_TOKEN`
 - `OPTIONAL_CONTAINER_ENV_VARS`: extra env vars to forward into the container when present
 - `PROMPTFOO_DISABLE_TELEMETRY`: forwarded into the container, default `1`
