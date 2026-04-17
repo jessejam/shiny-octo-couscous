@@ -40,7 +40,7 @@ python3 main.py
 - `SCANNER_MODE`: `docker` or `mock`
 - `DOCKER_BINARY`: Docker executable name, default `docker`
 - `SCANNER_IMAGE`: Docker image name, default `modelaudit`
-- `SCANNER_COMMAND`: command inside the container, default `modelaudit`
+- `SCANNER_COMMAND`: optional command inside the container; leave empty to use the image entrypoint
 - `SCANNER_FIXED_ARGS`: extra scanner arguments before the repository URL; the app always adds mandatory `--stream`
 - `REQUIRED_CONTAINER_ENV_VARS`: env vars that must exist before Docker scans start, default `JFROG_URL JFROG_API_TOKEN`
 - `OPTIONAL_CONTAINER_ENV_VARS`: extra env vars to forward into the container when present
@@ -49,7 +49,7 @@ python3 main.py
 - `DOCKER_NETWORK_MODE`: Docker network mode, default `none`; this blocks outbound DNS and network
   access from the container, so set `bridge` or leave it empty when scans need to reach remote
   hosts
-- `USE_EMPTY_ENTRYPOINT`: `true` by default to inject `--entrypoint ""`
+- `USE_EMPTY_ENTRYPOINT`: `false` by default; set it only if you need to override a broken image entrypoint
 - `EXTRA_DOCKER_ARGS`: additional raw Docker flags such as `--add-host` or `--security-opt seccomp=...`
 - `CONTAINER_WORKDIR`: mounted working directory inside the container, default `/work`
 - `SCAN_OUTPUT_FILENAME`: output filename, default `report.json`

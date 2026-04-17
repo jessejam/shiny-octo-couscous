@@ -407,7 +407,8 @@ def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
 
     command.extend(config["EXTRA_DOCKER_ARGS"])
     command.append(config["SCANNER_IMAGE"])
-    command.append(config["SCANNER_COMMAND"])
+    if config["SCANNER_COMMAND"]:
+        command.append(config["SCANNER_COMMAND"])
     command.extend(scanner_args)
     command.append(job.repo_url)
     command.extend(["--output", config["SCAN_OUTPUT_FILENAME"]])
@@ -840,7 +841,7 @@ def create_app() -> Flask:
         SCANNER_MODE=os.getenv("SCANNER_MODE", "docker").strip().lower(),
         DOCKER_BINARY=os.getenv("DOCKER_BINARY", "docker"),
         SCANNER_IMAGE=os.getenv("SCANNER_IMAGE", "modelaudit"),
-        SCANNER_COMMAND=os.getenv("SCANNER_COMMAND", "modelaudit"),
+        SCANNER_COMMAND=os.getenv("SCANNER_COMMAND", "").strip(),
         SCANNER_FIXED_ARGS=shlex.split(os.getenv("SCANNER_FIXED_ARGS", "")),
         REQUIRED_CONTAINER_ENV_VARS=shlex.split(
             os.getenv("REQUIRED_CONTAINER_ENV_VARS", "JFROG_URL JFROG_API_TOKEN")
@@ -853,7 +854,7 @@ def create_app() -> Flask:
             "NO_ANALYTICS": os.getenv("NO_ANALYTICS", "1"),
         },
         DOCKER_NETWORK_MODE=os.getenv("DOCKER_NETWORK_MODE", ""),
-        USE_EMPTY_ENTRYPOINT=truthy(os.getenv("USE_EMPTY_ENTRYPOINT"), default=True),
+        USE_EMPTY_ENTRYPOINT=truthy(os.getenv("USE_EMPTY_ENTRYPOINT"), default=False),
         EXTRA_DOCKER_ARGS=shlex.split(os.getenv("EXTRA_DOCKER_ARGS", "")),
         CONTAINER_WORKDIR=os.getenv("CONTAINER_WORKDIR", "/work"),
         SCAN_OUTPUT_FILENAME=os.getenv("SCAN_OUTPUT_FILENAME", "report.txt"),
