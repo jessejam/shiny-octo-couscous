@@ -848,7 +848,7 @@ def create_app() -> Flask:
             "PROMPTFOO_DISABLE_TELEMETRY": os.getenv("PROMPTFOO_DISABLE_TELEMETRY", "1"),
             "NO_ANALYTICS": os.getenv("NO_ANALYTICS", "1"),
         },
-        DOCKER_NETWORK_MODE=os.getenv("DOCKER_NETWORK_MODE", "none"),
+        DOCKER_NETWORK_MODE=os.getenv("DOCKER_NETWORK_MODE", ""),
         USE_EMPTY_ENTRYPOINT=truthy(os.getenv("USE_EMPTY_ENTRYPOINT"), default=True),
         EXTRA_DOCKER_ARGS=shlex.split(os.getenv("EXTRA_DOCKER_ARGS", "")),
         CONTAINER_WORKDIR=os.getenv("CONTAINER_WORKDIR", "/work"),
