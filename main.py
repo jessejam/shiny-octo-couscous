@@ -221,6 +221,7 @@ class JobStore:
         job_id = uuid.uuid4().hex[:12]
         work_dir = self.scans_root / job_id
         work_dir.mkdir(parents=True, exist_ok=True)
+        work_dir.chmod(0o777)
         job = ScanJob(
             job_id=job_id,
             repo_url=repo_url.strip(),
