@@ -80,6 +80,7 @@
   </section>
 
   <section class="button-row job-actions">
+    <a class="button-link button-link-muted" href="{{ job.log_url }}">Download Scanner Log</a>
     <a
       class="button-link{% if not job.raw_report_url %} is-hidden{% endif %}"
       data-raw-report-link

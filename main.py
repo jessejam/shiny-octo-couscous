@@ -7,6 +7,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -182,6 +183,7 @@ class ScanJob:
     repo_url: str
     work_dir: Path
     report_path: Path
+    log_path: Path
     created_at: datetime = field(default_factory=utc_now)
     status: str = "queued"
     started_at: datetime | None = None
@@ -224,7 +226,9 @@ class JobStore:
             repo_url=repo_url.strip(),
             work_dir=work_dir,
             report_path=work_dir / self.output_filename,
+            log_path=work_dir / "scanner.log",
         )
+        job.log_path.write_text("", encoding="utf-8")
         with self._lock:
             self._jobs[job_id] = job
         self.add_event(job, "status", "Scan queued.")
@@ -285,6 +289,7 @@ class JobStore:
                 "repo_url": job.repo_url,
                 "work_dir": str(job.work_dir),
                 "report_path": str(job.report_path),
+                "log_path": str(job.log_path),
                 "created_at": format_timestamp(job.created_at),
                 "started_at": format_timestamp(job.started_at),
                 "finished_at": format_timestamp(job.finished_at),
@@ -302,6 +307,7 @@ class JobStore:
                     if job.report_path.exists()
                     else None
                 ),
+                "log_url": url_for("download_scanner_log", job_id=job.job_id),
                 "events": [
                     {
                         "kind": event.kind,
@@ -350,6 +356,17 @@ def load_report_data(job: ScanJob) -> Any:
 def read_report_text(job: ScanJob) -> str:
     """Read the raw report file contents without parsing JSON."""
     return job.report_path.read_text(encoding="utf-8", errors="replace")
+
+
+def append_scanner_log(job: ScanJob, chunk: str) -> None:
+    """Append raw scanner output to the per-job log file."""
+    with job.log_path.open("a", encoding="utf-8") as handle:
+        handle.write(chunk)
+
+
+def read_scanner_log(job: ScanJob) -> str:
+    """Read the raw scanner log for a job."""
+    return job.log_path.read_text(encoding="utf-8", errors="replace")
 
 
 def build_container_env(config: dict[str, Any]) -> tuple[list[str], dict[str, str], list[str]]:
@@ -474,6 +491,9 @@ def stream_process_output(process: subprocess.Popen[str], store: JobStore, job: 
         return
 
     for raw_line in iter(process.stdout.readline, ""):
+        append_scanner_log(job, raw_line)
+        sys.stdout.write(f"[scan {job.job_id}] {raw_line}")
+        sys.stdout.flush()
         line = raw_line.strip()
         if line:
             store.add_event(job, "log", line)
@@ -1021,6 +1041,20 @@ def create_app() -> Flask:
             mimetype="text/plain; charset=utf-8",
         )
 
+    @app.get("/jobs/<job_id>/download-log")
+    def download_scanner_log(job_id: str) -> Response:
+        """Download the raw scanner stdout/stderr log for a job."""
+        job = get_job_or_404(job_id)
+        if not job.log_path.exists():
+            abort(404)
+
+        return send_file(
+            job.log_path,
+            as_attachment=True,
+            download_name=f"{job.job_id}-scanner.log",
+            mimetype="text/plain; charset=utf-8",
+        )
+
     @app.errorhandler(404)
     def handle_not_found(_: Exception) -> tuple[str, int]:
         """Render the generic not-found page."""
@@ -1058,4 +1092,4 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0",debug=True)
+    app.run(host="0.0.0.0", port=5001, debug=True)

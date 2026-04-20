@@ -29,6 +29,9 @@
       {% if action_url %}
         <a class="button-link" href="{{ action_url }}">{{ action_label }}</a>
       {% endif %}
+      {% if job and job.log_url %}
+        <a class="button-link button-link-muted" href="{{ job.log_url }}">Download Scanner Log</a>
+      {% endif %}
       {% if job and job.report_path %}
         <a class="button-link button-link-muted" href="{{ url_for('download_raw_report', job_id=job.job_id) }}">Download Raw Report</a>
       {% endif %}
