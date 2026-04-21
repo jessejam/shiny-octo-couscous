@@ -401,6 +401,10 @@ def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
 
     if "--stream" not in scanner_args:
         scanner_args.append("--stream")
+    if "--format" not in scanner_args:
+        scanner_args.extend(["--format", "json"])
+    if "--sbom" not in scanner_args:
+        scanner_args.extend(["--sbom", config["SBOM_OUTPUT_FILENAME"]])
 
     if config["DOCKER_NETWORK_MODE"]:
         command.extend(["--network", config["DOCKER_NETWORK_MODE"]])
@@ -733,6 +737,7 @@ def run_scan_job(app: Flask, job_id: str) -> None:
             "EXTRA_DOCKER_ARGS": current_app.config["EXTRA_DOCKER_ARGS"],
             "CONTAINER_WORKDIR": current_app.config["CONTAINER_WORKDIR"],
             "SCAN_OUTPUT_FILENAME": current_app.config["SCAN_OUTPUT_FILENAME"],
+            "SBOM_OUTPUT_FILENAME": current_app.config["SBOM_OUTPUT_FILENAME"],
             "SCAN_TIMEOUT_SECONDS": current_app.config["SCAN_TIMEOUT_SECONDS"],
         }
 
@@ -878,7 +883,8 @@ def create_app() -> Flask:
         USE_EMPTY_ENTRYPOINT=truthy(os.getenv("USE_EMPTY_ENTRYPOINT"), default=False),
         EXTRA_DOCKER_ARGS=shlex.split(os.getenv("EXTRA_DOCKER_ARGS", "")),
         CONTAINER_WORKDIR=os.getenv("CONTAINER_WORKDIR", "/work"),
-        SCAN_OUTPUT_FILENAME=os.getenv("SCAN_OUTPUT_FILENAME", "report.txt"),
+        SCAN_OUTPUT_FILENAME=os.getenv("SCAN_OUTPUT_FILENAME", "report.json"),
+        SBOM_OUTPUT_FILENAME=os.getenv("SBOM_OUTPUT_FILENAME", "sbom.json"),
         SCAN_TIMEOUT_SECONDS=int(os.getenv("SCAN_TIMEOUT_SECONDS", "1800")),
     )
 

@@ -41,7 +41,7 @@ python3 main.py
 - `DOCKER_BINARY`: Docker executable name, default `docker`
 - `SCANNER_IMAGE`: Docker image name, default `modelaudit`
 - `SCANNER_COMMAND`: optional command inside the container; leave empty to use the image entrypoint
-- `SCANNER_FIXED_ARGS`: extra scanner arguments before the repository URL; the app always adds mandatory `--stream`
+- `SCANNER_FIXED_ARGS`: extra scanner arguments before the repository URL; the app always adds mandatory `--stream --format json --sbom sbom.json`
 - `REQUIRED_CONTAINER_ENV_VARS`: env vars that must exist before Docker scans start, default `JFROG_URL JFROG_API_TOKEN`
 - `OPTIONAL_CONTAINER_ENV_VARS`: extra env vars to forward into the container when present
 - `PROMPTFOO_DISABLE_TELEMETRY`: forwarded into the container, default `1`
@@ -53,7 +53,32 @@ python3 main.py
 - `EXTRA_DOCKER_ARGS`: additional raw Docker flags such as `--add-host` or `--security-opt seccomp=...`
 - `CONTAINER_WORKDIR`: mounted working directory inside the container, default `/work`
 - `SCAN_OUTPUT_FILENAME`: output filename, default `report.json`
+- `SBOM_OUTPUT_FILENAME`: SBOM filename, default `sbom.json`
 - `SCAN_TIMEOUT_SECONDS`: max duration per scan, default `1800`
+
+## Passing Extra Env Vars Into The Container
+
+If the scanner needs additional environment variables, export them in your shell and list their
+names in `OPTIONAL_CONTAINER_ENV_VARS`.
+
+```bash
+export MY_FLAG=1
+export API_BASE_URL="https://example.internal"
+export OPTIONAL_CONTAINER_ENV_VARS="MY_FLAG API_BASE_URL"
+python3 main.py
+```
+
+The app forwards those names to Docker as `-e MY_FLAG -e API_BASE_URL`, so the container receives
+the values from your current shell environment.
+
+To add extra Docker flags to `docker run`, export `EXTRA_DOCKER_ARGS` alongside your env vars.
+
+```bash
+export MY_FLAG=1
+export OPTIONAL_CONTAINER_ENV_VARS="MY_FLAG"
+export EXTRA_DOCKER_ARGS="--add-host repo.internal=127.0.0.1 --security-opt seccomp=/absolute/path/profile.json"
+python3 main.py
+```
 
 ## External Validation Ideas
 
