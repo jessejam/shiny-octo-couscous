@@ -1007,8 +1007,8 @@ def create_app() -> Flask:
 
     app.config.update(
         SCANNER_MODE=os.getenv("SCANNER_MODE", "docker").strip().lower(),
-        DEFAULT_OUTPUT_FORMAT=normalize_output_format(os.getenv("DEFAULT_OUTPUT_FORMAT", "json"))
-        or "json",
+        DEFAULT_OUTPUT_FORMAT=normalize_output_format(os.getenv("DEFAULT_OUTPUT_FORMAT", "text"))
+        or "text",
         DOCKER_BINARY=os.getenv("DOCKER_BINARY", "docker"),
         SCANNER_IMAGE=os.getenv("SCANNER_IMAGE", "modelaudit"),
         SCANNER_COMMAND=os.getenv("SCANNER_COMMAND", "").strip(),
