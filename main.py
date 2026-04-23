@@ -1027,7 +1027,7 @@ def create_app() -> Flask:
         USE_EMPTY_ENTRYPOINT=truthy(os.getenv("USE_EMPTY_ENTRYPOINT"), default=False),
         EXTRA_DOCKER_ARGS=shlex.split(os.getenv("EXTRA_DOCKER_ARGS", "")),
         CONTAINER_WORKDIR=os.getenv("CONTAINER_WORKDIR", "/work"),
-        SCAN_TIMEOUT_SECONDS=int(os.getenv("SCAN_TIMEOUT_SECONDS", "1800")),
+        SCAN_TIMEOUT_SECONDS=int(os.getenv("SCAN_TIMEOUT_SECONDS", "3600")),
     )
 
     app.extensions["job_store"] = JobStore(scans_root=scans_root)
