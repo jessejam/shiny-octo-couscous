@@ -21,6 +21,14 @@
         required
         autocomplete="off"
       >
+      <label class="field-label" for="output_format">Report Format</label>
+      <select id="output_format" name="output_format">
+        {% for option in runtime.output_format_choices %}
+          <option value="{{ option.value }}" {% if option.value == runtime.default_output_format %}selected{% endif %}>
+            {{ option.label }}
+          </option>
+        {% endfor %}
+      </select>
       <button type="submit">Start Scan</button>
     </form>
   </section>
@@ -42,6 +50,12 @@
       <p class="eyebrow">Timeout</p>
       <h2>{{ runtime.timeout_seconds }}s</h2>
       <p>Maximum allowed duration for a single scan job.</p>
+    </article>
+
+    <article class="card info-card">
+      <p class="eyebrow">Default Format</p>
+      <h2>{{ runtime.default_output_format|upper }}</h2>
+      <p>The form choice controls <code>--format</code> and the report/SBOM file extensions.</p>
     </article>
   </section>
 

@@ -92,12 +92,12 @@ ERROR_META = {
     },
     "report_missing": {
         "title": "Report Missing",
-        "message": "The scan completed without producing the expected report.json file.",
+        "message": "The scan completed without producing the expected report file.",
         "status_code": 502,
     },
     "invalid_report": {
         "title": "Invalid Report",
-        "message": "The report.json file was created but could not be parsed.",
+        "message": "The report file was created but could not be parsed.",
         "status_code": 502,
     },
 }
@@ -110,6 +110,24 @@ NETWORK_RESOLUTION_PATTERNS = (
     "dial tcp",
     "getaddrinfo",
 )
+
+OUTPUT_FORMATS = {
+    "text": {
+        "label": "Text",
+        "extension": ".txt",
+        "mimetype": "text/plain; charset=utf-8",
+    },
+    "json": {
+        "label": "JSON",
+        "extension": ".json",
+        "mimetype": "application/json",
+    },
+    "sarif": {
+        "label": "SARIF",
+        "extension": ".sarif",
+        "mimetype": "application/sarif+json",
+    },
+}
 
 
 def utc_now() -> datetime:
@@ -129,6 +147,48 @@ def truthy(value: str | None, *, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def normalize_output_format(value: str | None) -> str | None:
+    """Normalize a user-provided output format name."""
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    return normalized if normalized in OUTPUT_FORMATS else None
+
+
+def get_output_format_meta(output_format: str) -> dict[str, str]:
+    """Return metadata for a supported output format."""
+    return OUTPUT_FORMATS[output_format]
+
+
+def build_artifact_filename(stem: str, output_format: str) -> str:
+    """Build an artifact filename from a stem and selected output format."""
+    return f"{stem}{get_output_format_meta(output_format)['extension']}"
+
+
+def get_download_mimetype(output_format: str) -> str:
+    """Return the preferred download mimetype for a selected output format."""
+    return get_output_format_meta(output_format)["mimetype"]
+
+
+def strip_flag_with_value(args: list[str], flag: str) -> list[str]:
+    """Remove a CLI flag and its value from an argument list."""
+    cleaned: list[str] = []
+    skip_next = False
+
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == flag:
+            skip_next = True
+            continue
+        if arg.startswith(f"{flag}="):
+            continue
+        cleaned.append(arg)
+
+    return cleaned
 
 
 def format_unix_timestamp(value: Any) -> str:
@@ -183,7 +243,9 @@ class ScanJob:
     repo_url: str
     work_dir: Path
     report_path: Path
+    sbom_path: Path
     log_path: Path
+    output_format: str = "json"
     created_at: datetime = field(default_factory=utc_now)
     status: str = "queued"
     started_at: datetime | None = None
@@ -209,14 +271,13 @@ class ScanJob:
 class JobStore:
     """Thread-safe storage for scan jobs and their event streams."""
 
-    def __init__(self, scans_root: Path, output_filename: str) -> None:
+    def __init__(self, scans_root: Path) -> None:
         """Create the job store and remember where scan outputs live."""
         self.scans_root = scans_root
-        self.output_filename = output_filename
         self._jobs: dict[str, ScanJob] = {}
         self._lock = threading.Lock()
 
-    def create(self, repo_url: str) -> ScanJob:
+    def create(self, repo_url: str, output_format: str) -> ScanJob:
         """Create a new scan job and its working directory."""
         job_id = uuid.uuid4().hex[:12]
         work_dir = self.scans_root / job_id
@@ -226,8 +287,10 @@ class JobStore:
             job_id=job_id,
             repo_url=repo_url.strip(),
             work_dir=work_dir,
-            report_path=work_dir / self.output_filename,
+            report_path=work_dir / build_artifact_filename("report", output_format),
+            sbom_path=work_dir / build_artifact_filename("sbom", output_format),
             log_path=work_dir / "scanner.log",
+            output_format=output_format,
         )
         job.log_path.write_text("", encoding="utf-8")
         with self._lock:
@@ -290,6 +353,7 @@ class JobStore:
                 "repo_url": job.repo_url,
                 "work_dir": str(job.work_dir),
                 "report_path": str(job.report_path),
+                "sbom_path": str(job.sbom_path),
                 "log_path": str(job.log_path),
                 "created_at": format_timestamp(job.created_at),
                 "started_at": format_timestamp(job.started_at),
@@ -300,6 +364,8 @@ class JobStore:
                 "error_code": job.error_code,
                 "error_message": job.error_message,
                 "returncode": job.returncode,
+                "output_format": job.output_format,
+                "output_format_label": get_output_format_meta(job.output_format)["label"],
                 "report_format": job.report_format,
                 "command_preview": job.command_preview,
                 "report_text": report_text,
@@ -399,12 +465,12 @@ def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
     passthrough_vars, explicit_vars, _ = build_container_env(config)
     scanner_args = list(config["SCANNER_FIXED_ARGS"])
 
-    if "--stream" not in scanner_args:
-        scanner_args.append("--stream")
-    if "--format" not in scanner_args:
-        scanner_args.extend(["--format", "json"])
-    if "--sbom" not in scanner_args:
-        scanner_args.extend(["--sbom", config["SBOM_OUTPUT_FILENAME"]])
+    scanner_args = [arg for arg in scanner_args if arg != "--stream"]
+    for managed_flag in ("--format", "--sbom", "--output"):
+        scanner_args = strip_flag_with_value(scanner_args, managed_flag)
+    scanner_args.append("--stream")
+    scanner_args.extend(["--format", job.output_format])
+    scanner_args.extend(["--sbom", job.sbom_path.name])
 
     if config["DOCKER_NETWORK_MODE"]:
         command.extend(["--network", config["DOCKER_NETWORK_MODE"]])
@@ -433,7 +499,7 @@ def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
         command.append(config["SCANNER_COMMAND"])
     command.extend(scanner_args)
     command.append(job.repo_url)
-    command.extend(["--output", config["SCAN_OUTPUT_FILENAME"]])
+    command.extend(["--output", job.report_path.name])
     return command
 
 
@@ -509,7 +575,18 @@ def stream_process_output(process: subprocess.Popen[str], store: JobStore, job: 
 def run_mock_scan(store: JobStore, job: ScanJob) -> None:
     """Simulate a scan so the UI can be tested without Docker."""
     with job.condition:
-        job.command = ["mock-scan", "modelaudit", job.repo_url, "--output", job.report_path.name]
+        job.command = [
+            "mock-scan",
+            "modelaudit",
+            "--stream",
+            "--format",
+            job.output_format,
+            "--sbom",
+            job.sbom_path.name,
+            job.repo_url,
+            "--output",
+            job.report_path.name,
+        ]
 
     store.update_status(job, "running", hint="Mock scan started.")
 
@@ -518,59 +595,126 @@ def run_mock_scan(store: JobStore, job: ScanJob) -> None:
         "Resolving repository metadata.",
         "Inspecting model files.",
         "Collecting policy findings.",
-        "Writing report.json.",
+        f"Writing {job.report_path.name}.",
     ]
 
     for step in mock_steps:
         store.add_event(job, "log", step)
         time.sleep(0.9)
 
-    report = {
-        "scanner_names": ["pickle"],
-        "start_time": time.time(),
-        "bytes_scanned": 74,
-        "issues": [
-            {
-                "message": "Mock finding generated for UI development.",
-                "severity": "warning",
-                "location": "demo-model.pickle (pos 71)",
-                "details": {
-                    "position": 71,
-                    "opcode": "REDUCE",
-                },
-                "timestamp": time.time(),
-            },
-            {
-                "message": "Replace this item with real scanner output after the first Docker-backed run.",
-                "severity": "critical",
-                "location": "demo-model.pickle (pos 28)",
-                "details": {
-                    "module": "posix",
-                    "function": "system",
-                    "position": 28,
-                    "opcode": "STACK_GLOBAL",
-                },
-                "timestamp": time.time(),
-                "why": "This is placeholder data that mirrors the documented report structure.",
-            },
-        ],
-        "has_errors": False,
-        "files_scanned": 1,
-        "duration": 0.532,
-        "assets": [
-            {
-                "path": "demo-model.pickle",
-                "type": "pickle",
-            }
-        ],
-    }
+    if job.output_format == "text":
+        report = """\
+SCAN SUMMARY
+Duration: 0.532s
+Files: 1
+Format: text
 
-    job.report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-
-    with job.condition:
-        job.report_data = report
-        job.returncode = 0
-        job.report_format = "json"
+SECURITY FINDINGS
+- Mock finding generated for UI development.
+"""
+        sbom = "Mock SBOM output for text mode.\n"
+        job.report_path.write_text(report, encoding="utf-8")
+        job.sbom_path.write_text(sbom, encoding="utf-8")
+        with job.condition:
+            job.report_data = report
+            job.returncode = 0
+            job.report_format = "text"
+    elif job.output_format == "sarif":
+        report = {
+            "version": "2.1.0",
+            "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+            "runs": [
+                {
+                    "tool": {
+                        "driver": {
+                            "name": "modelaudit",
+                            "version": "mock",
+                        }
+                    },
+                    "results": [
+                        {
+                            "level": "warning",
+                            "message": {
+                                "text": "Mock SARIF result generated for UI development."
+                            },
+                            "locations": [
+                                {
+                                    "physicalLocation": {
+                                        "artifactLocation": {
+                                            "uri": "demo-model.pickle"
+                                        }
+                                    }
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+        sbom = {
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.5",
+            "version": 1,
+            "metadata": {"component": {"name": "mock-model"}},
+        }
+        job.report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        job.sbom_path.write_text(json.dumps(sbom, indent=2), encoding="utf-8")
+        with job.condition:
+            job.report_data = report
+            job.returncode = 0
+            job.report_format = "json"
+    else:
+        report = {
+            "scanner_names": ["pickle"],
+            "start_time": time.time(),
+            "bytes_scanned": 74,
+            "issues": [
+                {
+                    "message": "Mock finding generated for UI development.",
+                    "severity": "warning",
+                    "location": "demo-model.pickle (pos 71)",
+                    "details": {
+                        "position": 71,
+                        "opcode": "REDUCE",
+                    },
+                    "timestamp": time.time(),
+                },
+                {
+                    "message": "Replace this item with real scanner output after the first Docker-backed run.",
+                    "severity": "critical",
+                    "location": "demo-model.pickle (pos 28)",
+                    "details": {
+                        "module": "posix",
+                        "function": "system",
+                        "position": 28,
+                        "opcode": "STACK_GLOBAL",
+                    },
+                    "timestamp": time.time(),
+                    "why": "This is placeholder data that mirrors the documented report structure.",
+                },
+            ],
+            "has_errors": False,
+            "files_scanned": 1,
+            "duration": 0.532,
+            "assets": [
+                {
+                    "path": "demo-model.pickle",
+                    "type": "pickle",
+                }
+            ],
+        }
+        sbom = {
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.5",
+            "version": 1,
+            "metadata": {"component": {"name": "mock-model"}},
+        }
+        job.report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        job.sbom_path.write_text(json.dumps(sbom, indent=2), encoding="utf-8")
+        with job.condition:
+            job.report_data = report
+            job.returncode = 0
+            job.report_format = "json"
 
     store.update_status(job, "finished", hint="Mock scan finished. Report ready.")
     store.add_event(job, "done", "Scan complete.")
@@ -685,7 +829,7 @@ def run_docker_scan(store: JobStore, job: ScanJob, config: dict[str, Any]) -> No
             job,
             status="report_missing",
             error_code="report_missing",
-            message="The scan completed, but no report.json file was created.",
+            message=f"The scan completed, but no report file was created at {job.report_path.name}.",
         )
         return
 
@@ -736,8 +880,6 @@ def run_scan_job(app: Flask, job_id: str) -> None:
             "USE_EMPTY_ENTRYPOINT": current_app.config["USE_EMPTY_ENTRYPOINT"],
             "EXTRA_DOCKER_ARGS": current_app.config["EXTRA_DOCKER_ARGS"],
             "CONTAINER_WORKDIR": current_app.config["CONTAINER_WORKDIR"],
-            "SCAN_OUTPUT_FILENAME": current_app.config["SCAN_OUTPUT_FILENAME"],
-            "SBOM_OUTPUT_FILENAME": current_app.config["SBOM_OUTPUT_FILENAME"],
             "SCAN_TIMEOUT_SECONDS": current_app.config["SCAN_TIMEOUT_SECONDS"],
         }
 
@@ -865,6 +1007,8 @@ def create_app() -> Flask:
 
     app.config.update(
         SCANNER_MODE=os.getenv("SCANNER_MODE", "docker").strip().lower(),
+        DEFAULT_OUTPUT_FORMAT=normalize_output_format(os.getenv("DEFAULT_OUTPUT_FORMAT", "json"))
+        or "json",
         DOCKER_BINARY=os.getenv("DOCKER_BINARY", "docker"),
         SCANNER_IMAGE=os.getenv("SCANNER_IMAGE", "modelaudit"),
         SCANNER_COMMAND=os.getenv("SCANNER_COMMAND", "").strip(),
@@ -883,15 +1027,10 @@ def create_app() -> Flask:
         USE_EMPTY_ENTRYPOINT=truthy(os.getenv("USE_EMPTY_ENTRYPOINT"), default=False),
         EXTRA_DOCKER_ARGS=shlex.split(os.getenv("EXTRA_DOCKER_ARGS", "")),
         CONTAINER_WORKDIR=os.getenv("CONTAINER_WORKDIR", "/work"),
-        SCAN_OUTPUT_FILENAME=os.getenv("SCAN_OUTPUT_FILENAME", "report.json"),
-        SBOM_OUTPUT_FILENAME=os.getenv("SBOM_OUTPUT_FILENAME", "sbom.json"),
         SCAN_TIMEOUT_SECONDS=int(os.getenv("SCAN_TIMEOUT_SECONDS", "1800")),
     )
 
-    app.extensions["job_store"] = JobStore(
-        scans_root=scans_root,
-        output_filename=app.config["SCAN_OUTPUT_FILENAME"],
-    )
+    app.extensions["job_store"] = JobStore(scans_root=scans_root)
 
     @app.template_filter("pretty_json")
     def pretty_json(value: Any) -> str:
@@ -920,6 +1059,11 @@ def create_app() -> Flask:
         runtime = {
             "scanner_mode": current_app.config["SCANNER_MODE"],
             "scanner_image": current_app.config["SCANNER_IMAGE"],
+            "output_format_choices": [
+                {"value": value, "label": meta["label"]}
+                for value, meta in OUTPUT_FORMATS.items()
+            ],
+            "default_output_format": current_app.config["DEFAULT_OUTPUT_FORMAT"],
             "required_env_vars": current_app.config["REQUIRED_CONTAINER_ENV_VARS"],
             "container_env_defaults": current_app.config["CONTAINER_ENV_DEFAULTS"],
             "docker_network_mode": docker_network_mode or "default",
@@ -944,6 +1088,9 @@ def create_app() -> Flask:
     def start_scan() -> Response | str:
         """Create a scan job and redirect to its live progress page."""
         repo_url = request.form.get("repo_url", "").strip()
+        output_format = normalize_output_format(
+            request.form.get("output_format", current_app.config["DEFAULT_OUTPUT_FORMAT"])
+        )
         if not repo_url:
             return (
                 render_template(
@@ -956,9 +1103,21 @@ def create_app() -> Flask:
                 ),
                 400,
             )
+        if output_format is None:
+            return (
+                render_template(
+                    "error.html",
+                    title="Invalid Output Format",
+                    headline="Invalid Output Format",
+                    message="Choose one of the supported output formats: text, json, or sarif.",
+                    action_label="Back to scanner",
+                    action_url=url_for("index"),
+                ),
+                400,
+            )
 
         store = get_store()
-        job = store.create(repo_url)
+        job = store.create(repo_url, output_format)
 
         thread = threading.Thread(
             target=run_scan_job,
@@ -1008,10 +1167,17 @@ def create_app() -> Flask:
         if status == "finished":
             report_data = load_report_data(job)
             snapshot = get_store().snapshot(job)
+            structured_report = (
+                snapshot["output_format"] == "json"
+                and snapshot["report_format"] == "json"
+                and isinstance(report_data, dict)
+                and "issues" in report_data
+            )
             return render_template(
                 "report.html",
                 job=snapshot,
                 report_data=report_data,
+                structured_report=structured_report,
             )
 
         if status in TERMINAL_STATUSES:
@@ -1021,7 +1187,7 @@ def create_app() -> Flask:
 
     @app.get("/jobs/<job_id>/download")
     def download_report(job_id: str) -> Response:
-        """Download the finished report.json file for a job."""
+        """Download the finished report file for a job."""
         job = get_job_or_404(job_id)
         with job.condition:
             if job.status != "finished" or not job.report_path.exists():
@@ -1030,8 +1196,8 @@ def create_app() -> Flask:
         return send_file(
             job.report_path,
             as_attachment=True,
-            download_name=f"{job.job_id}-report.json",
-            mimetype="application/json",
+            download_name=f"{job.job_id}-{job.report_path.name}",
+            mimetype=get_download_mimetype(job.output_format),
         )
 
     @app.get("/jobs/<job_id>/download-raw")
@@ -1044,8 +1210,8 @@ def create_app() -> Flask:
         return send_file(
             job.report_path,
             as_attachment=True,
-            download_name=f"{job.job_id}-raw-report.txt",
-            mimetype="text/plain; charset=utf-8",
+            download_name=f"{job.job_id}-{job.report_path.name}",
+            mimetype=get_download_mimetype(job.output_format),
         )
 
     @app.get("/jobs/<job_id>/download-log")

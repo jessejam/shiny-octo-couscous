@@ -152,7 +152,8 @@ body {
   font-weight: 700;
 }
 
-input[type="url"] {
+input[type="url"],
+select {
   width: 100%;
   padding: 1rem 1.1rem;
   border: 1px solid var(--line);
@@ -162,7 +163,8 @@ input[type="url"] {
   color: inherit;
 }
 
-input[type="url"]:focus {
+input[type="url"]:focus,
+select:focus {
   outline: 2px solid rgba(15, 118, 110, 0.22);
   border-color: rgba(15, 118, 110, 0.55);
 }

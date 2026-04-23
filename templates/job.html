@@ -28,6 +28,10 @@
           <span>Created</span>
           <span>{{ job.created_at }}</span>
         </div>
+        <div class="details-row">
+          <span>Output format</span>
+          <span>{{ job.output_format_label }}</span>
+        </div>
         {% if job.started_at %}
           <div class="details-row">
             <span>Started</span>

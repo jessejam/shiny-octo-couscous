@@ -15,7 +15,7 @@
     </div>
   </section>
 
-  {% if job.report_format == "json" %}
+  {% if structured_report %}
     <section class="runtime-grid">
       <article class="card info-card">
         <p class="eyebrow">Scanners</p>
@@ -141,6 +141,44 @@
       <p class="eyebrow">Raw Output</p>
       <pre>{{ report_data | pretty_json }}</pre>
     </section>
+  {% elif job.report_format == "json" %}
+    <section class="job-grid">
+      <article class="card">
+        <p class="eyebrow">Run Details</p>
+        <div class="details-list">
+          <div class="details-row">
+            <span>Job ID</span>
+            <code>{{ job.job_id }}</code>
+          </div>
+          <div class="details-row">
+            <span>Finished</span>
+            <span>{{ job.finished_at }}</span>
+          </div>
+          <div class="details-row">
+            <span>Stored report</span>
+            <code>{{ job.report_path }}</code>
+          </div>
+          <div class="details-row">
+            <span>Format</span>
+            <span>{{ job.output_format_label }}</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card">
+        <p class="eyebrow">Summary</p>
+        <h2>JSON Report</h2>
+        <p class="details-note">
+          This report parsed as JSON, but it does not match the simplified modelaudit summary
+          schema used by the structured view.
+        </p>
+      </article>
+    </section>
+
+    <section class="card report-card">
+      <p class="eyebrow">Raw Output</p>
+      <pre>{{ report_data | pretty_json }}</pre>
+    </section>
   {% else %}
     <section class="job-grid">
       <article class="card">
@@ -160,16 +198,16 @@
           </div>
           <div class="details-row">
             <span>Format</span>
-            <span>Plain text</span>
+            <span>{{ job.output_format_label }}</span>
           </div>
         </div>
       </article>
 
       <article class="card">
         <p class="eyebrow">Summary</p>
-        <h2>Text Report</h2>
+        <h2>Plain-Text Report</h2>
         <p class="details-note">
-          This scan completed successfully, but the generated file is plain text rather than JSON.
+          This scan completed successfully, and the generated file is plain text.
         </p>
       </article>
     </section>
