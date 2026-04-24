@@ -32,11 +32,23 @@
   }
 
   function updateActions(payload) {
-    const rawReportLink = document.querySelector("[data-raw-report-link]");
+    const reportLink = document.querySelector("[data-report-link]");
+    const sidecarLink = document.querySelector("[data-sidecar-link]");
+    const sbomLink = document.querySelector("[data-sbom-link]");
 
-    if (rawReportLink && payload.raw_report_url) {
-      rawReportLink.href = payload.raw_report_url;
-      rawReportLink.classList.remove("is-hidden");
+    if (reportLink && payload.report_url) {
+      reportLink.href = payload.report_url;
+      reportLink.classList.remove("is-hidden");
+    }
+
+    if (sidecarLink && payload.sidecar_url) {
+      sidecarLink.href = payload.sidecar_url;
+      sidecarLink.classList.remove("is-hidden");
+    }
+
+    if (sbomLink && payload.sbom_url) {
+      sbomLink.href = payload.sbom_url;
+      sbomLink.classList.remove("is-hidden");
     }
   }
 
@@ -68,9 +80,9 @@
       updateActions(payload);
 
       if (hintNode) {
-        hintNode.textContent = payload.raw_report_url
-          ? "Scan finished. You can download the raw report below."
-          : "Scan finished. No raw report file is available for download.";
+        hintNode.textContent = payload.report_url
+          ? "Scan finished. You can download the report, JSON sidecar, and SBOM below."
+          : "Scan finished. No report file is available for download.";
       }
 
       return true;
@@ -136,7 +148,9 @@
           status_label: payload.status_label,
           status_hint: payload.status_hint,
           result_url: payload.result_url,
-          raw_report_url: payload.raw_report_url
+          report_url: payload.report_url,
+          sidecar_url: payload.sidecar_url,
+          sbom_url: payload.sbom_url
         });
         finishIfNeeded(payload, eventSource);
       });

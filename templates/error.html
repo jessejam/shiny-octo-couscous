@@ -32,8 +32,14 @@
       {% if job and job.log_url %}
         <a class="button-link button-link-muted" href="{{ job.log_url }}">Download Scanner Log</a>
       {% endif %}
-      {% if job and job.report_path %}
-        <a class="button-link button-link-muted" href="{{ url_for('download_raw_report', job_id=job.job_id) }}">Download Raw Report</a>
+      {% if job and job.report_url %}
+        <a class="button-link button-link-muted" href="{{ job.report_url }}">Download Report</a>
+      {% endif %}
+      {% if job and job.sidecar_url %}
+        <a class="button-link button-link-muted" href="{{ job.sidecar_url }}">Download JSON Sidecar</a>
+      {% endif %}
+      {% if job and job.sbom_url %}
+        <a class="button-link button-link-muted" href="{{ job.sbom_url }}">Download SBOM</a>
       {% endif %}
       {% if secondary_action_url %}
         <a class="button-link button-link-muted" href="{{ secondary_action_url }}">{{ secondary_action_label }}</a>

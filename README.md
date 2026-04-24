@@ -38,11 +38,10 @@ python3 main.py
 ## Configuration
 
 - `SCANNER_MODE`: `docker` or `mock`
-- `DEFAULT_OUTPUT_FORMAT`: default UI selection for scan output, one of `text`, `json`, or `sarif`
 - `DOCKER_BINARY`: Docker executable name, default `docker`
 - `SCANNER_IMAGE`: Docker image name, default `modelaudit`
 - `SCANNER_COMMAND`: optional command inside the container; leave empty to use the image entrypoint
-- `SCANNER_FIXED_ARGS`: extra scanner arguments before the repository URL; the app always adds mandatory `--stream` and `--timeout`, and the UI selection controls `--format`, `--sbom`, and `--output`
+- `SCANNER_FIXED_ARGS`: extra scanner arguments before the repository URL; the app always adds mandatory `--stream`, `--format text`, `--json-output sidecar.json`, `--sbom sbom.json`, `--output report.txt`, and `--timeout`
 - `REQUIRED_CONTAINER_ENV_VARS`: env vars that must exist before Docker scans start, default `JFROG_URL JFROG_API_TOKEN`
 - `OPTIONAL_CONTAINER_ENV_VARS`: extra env vars to forward into the container when present
 - `PROMPTFOO_DISABLE_TELEMETRY`: forwarded into the container, default `1`
@@ -55,11 +54,11 @@ python3 main.py
 - `CONTAINER_WORKDIR`: mounted working directory inside the container, default `/work`
 - `SCAN_TIMEOUT_SECONDS`: max duration per scan, default `5400`; the same value is also passed to modelaudit as `--timeout`
 
-In the web form, the user can choose `text`, `json`, or `sarif`. That choice changes:
+Each scan always produces these three files:
 
-- the scanner `--format` flag
-- the report filename extension, for example `report.txt`, `report.json`, or `report.sarif`
-- the SBOM filename extension, for example `sbom.txt`, `sbom.json`, or `sbom.sarif`
+- `report.txt`: the short plain-text report shown to the user
+- `sidecar.json`: the more detailed JSON report from `--json-output`
+- `sbom.json`: the generated SBOM output
 
 ## Passing Extra Env Vars Into The Container
 

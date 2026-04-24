@@ -21,14 +21,6 @@
         required
         autocomplete="off"
       >
-      <label class="field-label" for="output_format">Report Format</label>
-      <select id="output_format" name="output_format">
-        {% for option in runtime.output_format_choices %}
-          <option value="{{ option.value }}" {% if option.value == runtime.default_output_format %}selected{% endif %}>
-            {{ option.label }}
-          </option>
-        {% endfor %}
-      </select>
       <button type="submit">Start Scan</button>
     </form>
   </section>
@@ -53,9 +45,9 @@
     </article>
 
     <article class="card info-card">
-      <p class="eyebrow">Default Format</p>
-      <h2>{{ runtime.default_output_format|upper }}</h2>
-      <p>The form choice controls <code>--format</code> and the report/SBOM file extensions.</p>
+      <p class="eyebrow">Artifacts</p>
+      <h2>3 files</h2>
+      <p>Each scan produces <code>report.txt</code>, <code>sidecar.json</code>, and <code>sbom.json</code>.</p>
     </article>
   </section>
 

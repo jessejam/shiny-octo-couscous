@@ -50,7 +50,7 @@ STATUS_META = {
     },
     "finished": {
         "label": "Finished",
-        "hint": "The report is ready to review and download.",
+        "hint": "The generated scan artifacts are ready to review and download.",
     },
     "failed": {
         "label": "Failed",
@@ -65,12 +65,12 @@ STATUS_META = {
         "hint": "Docker or the scanner runtime is not reachable from this environment.",
     },
     "report_missing": {
-        "label": "Missing Report",
-        "hint": "The scan finished, but no report file was found.",
+        "label": "Missing Output",
+        "hint": "The scan finished, but one or more expected output files were not found.",
     },
     "invalid_report": {
         "label": "Invalid Report",
-        "hint": "The generated report file could not be parsed as JSON.",
+        "hint": "The generated JSON sidecar file could not be parsed.",
     },
 }
 
@@ -91,13 +91,13 @@ ERROR_META = {
         "status_code": 503,
     },
     "report_missing": {
-        "title": "Report Missing",
-        "message": "The scan completed without producing the expected report file.",
+        "title": "Missing Output",
+        "message": "The scan completed without producing one or more expected output files.",
         "status_code": 502,
     },
     "invalid_report": {
         "title": "Invalid Report",
-        "message": "The report file was created but could not be parsed.",
+        "message": "The JSON sidecar file was created but could not be parsed.",
         "status_code": 502,
     },
 }
@@ -111,23 +111,11 @@ NETWORK_RESOLUTION_PATTERNS = (
     "getaddrinfo",
 )
 
-OUTPUT_FORMATS = {
-    "text": {
-        "label": "Text",
-        "extension": ".txt",
-        "mimetype": "text/plain; charset=utf-8",
-    },
-    "json": {
-        "label": "JSON",
-        "extension": ".json",
-        "mimetype": "application/json",
-    },
-    "sarif": {
-        "label": "SARIF",
-        "extension": ".sarif",
-        "mimetype": "application/sarif+json",
-    },
-}
+REPORT_FILENAME = "report.txt"
+SIDECAR_FILENAME = "sidecar.json"
+SBOM_FILENAME = "sbom.json"
+TEXT_MIMETYPE = "text/plain; charset=utf-8"
+JSON_MIMETYPE = "application/json"
 
 
 def utc_now() -> datetime:
@@ -149,27 +137,9 @@ def truthy(value: str | None, *, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def normalize_output_format(value: str | None) -> str | None:
-    """Normalize a user-provided output format name."""
-    if value is None:
-        return None
-    normalized = value.strip().lower()
-    return normalized if normalized in OUTPUT_FORMATS else None
-
-
-def get_output_format_meta(output_format: str) -> dict[str, str]:
-    """Return metadata for a supported output format."""
-    return OUTPUT_FORMATS[output_format]
-
-
-def build_artifact_filename(stem: str, output_format: str) -> str:
-    """Build an artifact filename from a stem and selected output format."""
-    return f"{stem}{get_output_format_meta(output_format)['extension']}"
-
-
-def get_download_mimetype(output_format: str) -> str:
-    """Return the preferred download mimetype for a selected output format."""
-    return get_output_format_meta(output_format)["mimetype"]
+def get_download_mimetype(path: Path) -> str:
+    """Return the preferred download mimetype for an artifact path."""
+    return JSON_MIMETYPE if path.suffix == ".json" else TEXT_MIMETYPE
 
 
 def strip_flag_with_value(args: list[str], flag: str) -> list[str]:
@@ -243,9 +213,9 @@ class ScanJob:
     repo_url: str
     work_dir: Path
     report_path: Path
+    sidecar_path: Path
     sbom_path: Path
     log_path: Path
-    output_format: str = "json"
     created_at: datetime = field(default_factory=utc_now)
     status: str = "queued"
     started_at: datetime | None = None
@@ -253,10 +223,10 @@ class ScanJob:
     error_code: str | None = None
     error_message: str | None = None
     returncode: int | None = None
-    report_format: str = "json"
     command: list[str] = field(default_factory=list)
     events: list[JobEvent] = field(default_factory=list)
     report_data: Any = None
+    sidecar_data: Any = None
     condition: threading.Condition = field(
         default_factory=threading.Condition,
         repr=False,
@@ -277,7 +247,7 @@ class JobStore:
         self._jobs: dict[str, ScanJob] = {}
         self._lock = threading.Lock()
 
-    def create(self, repo_url: str, output_format: str) -> ScanJob:
+    def create(self, repo_url: str) -> ScanJob:
         """Create a new scan job and its working directory."""
         job_id = uuid.uuid4().hex[:12]
         work_dir = self.scans_root / job_id
@@ -287,10 +257,10 @@ class JobStore:
             job_id=job_id,
             repo_url=repo_url.strip(),
             work_dir=work_dir,
-            report_path=work_dir / build_artifact_filename("report", output_format),
-            sbom_path=work_dir / build_artifact_filename("sbom", output_format),
+            report_path=work_dir / REPORT_FILENAME,
+            sidecar_path=work_dir / SIDECAR_FILENAME,
+            sbom_path=work_dir / SBOM_FILENAME,
             log_path=work_dir / "scanner.log",
-            output_format=output_format,
         )
         job.log_path.write_text("", encoding="utf-8")
         with self._lock:
@@ -342,17 +312,18 @@ class JobStore:
     def snapshot(self, job: ScanJob) -> dict[str, Any]:
         """Build a template-friendly snapshot of the current job state."""
         with job.condition:
-            report_text = None
-            if job.report_data is not None:
-                if job.report_format == "json":
-                    report_text = json.dumps(job.report_data, indent=2, ensure_ascii=False)
-                else:
-                    report_text = str(job.report_data)
+            report_text = str(job.report_data) if job.report_data is not None else None
+            sidecar_text = (
+                json.dumps(job.sidecar_data, indent=2, ensure_ascii=False)
+                if job.sidecar_data is not None
+                else None
+            )
             return {
                 "job_id": job.job_id,
                 "repo_url": job.repo_url,
                 "work_dir": str(job.work_dir),
                 "report_path": str(job.report_path),
+                "sidecar_path": str(job.sidecar_path),
                 "sbom_path": str(job.sbom_path),
                 "log_path": str(job.log_path),
                 "created_at": format_timestamp(job.created_at),
@@ -364,14 +335,22 @@ class JobStore:
                 "error_code": job.error_code,
                 "error_message": job.error_message,
                 "returncode": job.returncode,
-                "output_format": job.output_format,
-                "output_format_label": get_output_format_meta(job.output_format)["label"],
-                "report_format": job.report_format,
                 "command_preview": job.command_preview,
                 "report_text": report_text,
-                "raw_report_url": (
-                    url_for("download_raw_report", job_id=job.job_id)
+                "sidecar_text": sidecar_text,
+                "report_url": (
+                    url_for("download_report", job_id=job.job_id)
                     if job.report_path.exists()
+                    else None
+                ),
+                "sidecar_url": (
+                    url_for("download_sidecar", job_id=job.job_id)
+                    if job.sidecar_path.exists()
+                    else None
+                ),
+                "sbom_url": (
+                    url_for("download_sbom", job_id=job.job_id)
+                    if job.sbom_path.exists()
                     else None
                 ),
                 "log_url": url_for("download_scanner_log", job_id=job.job_id),
@@ -399,25 +378,35 @@ def get_job_or_404(job_id: str) -> ScanJob:
     return job
 
 
-def load_report_data(job: ScanJob) -> Any:
-    """Load and cache the parsed JSON report for a finished job."""
+def load_report_data(job: ScanJob) -> str:
+    """Load and cache the plain-text report for a finished job."""
     with job.condition:
         if job.report_data is not None:
             return job.report_data
 
-    raw_report = read_report_text(job)
+    with job.condition:
+        job.report_data = read_report_text(job)
+        return job.report_data
 
+
+def load_sidecar_data(job: ScanJob) -> Any | None:
+    """Load and cache the parsed JSON sidecar for a finished job."""
+    with job.condition:
+        if job.sidecar_data is not None:
+            return job.sidecar_data
+
+    if not job.sidecar_path.exists():
+        return None
+
+    raw_sidecar = job.sidecar_path.read_text(encoding="utf-8", errors="replace")
     try:
-        report_data = json.loads(raw_report)
-        report_format = "json"
+        sidecar_data = json.loads(raw_sidecar)
     except json.JSONDecodeError:
-        report_data = raw_report
-        report_format = "text"
+        return None
 
     with job.condition:
-        job.report_data = report_data
-        job.report_format = report_format
-    return report_data
+        job.sidecar_data = sidecar_data
+    return sidecar_data
 
 
 def read_report_text(job: ScanJob) -> str:
@@ -466,11 +455,12 @@ def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
     scanner_args = list(config["SCANNER_FIXED_ARGS"])
 
     scanner_args = [arg for arg in scanner_args if arg != "--stream"]
-    for managed_flag in ("--format", "--sbom", "--output", "--timeout"):
+    for managed_flag in ("--format", "--sbom", "--output", "--json-output", "--timeout"):
         scanner_args = strip_flag_with_value(scanner_args, managed_flag)
     scanner_args.append("--stream")
-    scanner_args.extend(["--format", job.output_format])
+    scanner_args.extend(["--format", "text"])
     scanner_args.extend(["--sbom", job.sbom_path.name])
+    scanner_args.extend(["--json-output", job.sidecar_path.name])
     scanner_args.extend(["--timeout", str(config["SCAN_TIMEOUT_SECONDS"])])
 
     if config["DOCKER_NETWORK_MODE"]:
@@ -581,9 +571,13 @@ def run_mock_scan(store: JobStore, job: ScanJob) -> None:
             "modelaudit",
             "--stream",
             "--format",
-            job.output_format,
+            "text",
             "--sbom",
             job.sbom_path.name,
+            "--json-output",
+            job.sidecar_path.name,
+            "--timeout",
+            str(current_app.config["SCAN_TIMEOUT_SECONDS"]),
             job.repo_url,
             "--output",
             job.report_path.name,
@@ -596,6 +590,8 @@ def run_mock_scan(store: JobStore, job: ScanJob) -> None:
         "Resolving repository metadata.",
         "Inspecting model files.",
         "Collecting policy findings.",
+        f"Writing {job.sidecar_path.name}.",
+        f"Writing {job.sbom_path.name}.",
         f"Writing {job.report_path.name}.",
     ]
 
@@ -603,8 +599,7 @@ def run_mock_scan(store: JobStore, job: ScanJob) -> None:
         store.add_event(job, "log", step)
         time.sleep(0.9)
 
-    if job.output_format == "text":
-        report = """\
+    report = """\
 SCAN SUMMARY
 Duration: 0.532s
 Files: 1
@@ -613,111 +608,61 @@ Format: text
 SECURITY FINDINGS
 - Mock finding generated for UI development.
 """
-        sbom = "Mock SBOM output for text mode.\n"
-        job.report_path.write_text(report, encoding="utf-8")
-        job.sbom_path.write_text(sbom, encoding="utf-8")
-        with job.condition:
-            job.report_data = report
-            job.returncode = 0
-            job.report_format = "text"
-    elif job.output_format == "sarif":
-        report = {
-            "version": "2.1.0",
-            "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
-            "runs": [
-                {
-                    "tool": {
-                        "driver": {
-                            "name": "modelaudit",
-                            "version": "mock",
-                        }
-                    },
-                    "results": [
-                        {
-                            "level": "warning",
-                            "message": {
-                                "text": "Mock SARIF result generated for UI development."
-                            },
-                            "locations": [
-                                {
-                                    "physicalLocation": {
-                                        "artifactLocation": {
-                                            "uri": "demo-model.pickle"
-                                        }
-                                    }
-                                }
-                            ],
-                        }
-                    ],
-                }
-            ],
-        }
-        sbom = {
-            "bomFormat": "CycloneDX",
-            "specVersion": "1.5",
-            "version": 1,
-            "metadata": {"component": {"name": "mock-model"}},
-        }
-        job.report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        job.sbom_path.write_text(json.dumps(sbom, indent=2), encoding="utf-8")
-        with job.condition:
-            job.report_data = report
-            job.returncode = 0
-            job.report_format = "json"
-    else:
-        report = {
-            "scanner_names": ["pickle"],
-            "start_time": time.time(),
-            "bytes_scanned": 74,
-            "issues": [
-                {
-                    "message": "Mock finding generated for UI development.",
-                    "severity": "warning",
-                    "location": "demo-model.pickle (pos 71)",
-                    "details": {
-                        "position": 71,
-                        "opcode": "REDUCE",
-                    },
-                    "timestamp": time.time(),
+    sidecar = {
+        "scanner_names": ["pickle"],
+        "start_time": time.time(),
+        "bytes_scanned": 74,
+        "issues": [
+            {
+                "message": "Mock finding generated for UI development.",
+                "severity": "warning",
+                "location": "demo-model.pickle (pos 71)",
+                "details": {
+                    "position": 71,
+                    "opcode": "REDUCE",
                 },
-                {
-                    "message": "Replace this item with real scanner output after the first Docker-backed run.",
-                    "severity": "critical",
-                    "location": "demo-model.pickle (pos 28)",
-                    "details": {
-                        "module": "posix",
-                        "function": "system",
-                        "position": 28,
-                        "opcode": "STACK_GLOBAL",
-                    },
-                    "timestamp": time.time(),
-                    "why": "This is placeholder data that mirrors the documented report structure.",
+                "timestamp": time.time(),
+            },
+            {
+                "message": "Replace this item with real scanner output after the first Docker-backed run.",
+                "severity": "critical",
+                "location": "demo-model.pickle (pos 28)",
+                "details": {
+                    "module": "posix",
+                    "function": "system",
+                    "position": 28,
+                    "opcode": "STACK_GLOBAL",
                 },
-            ],
-            "has_errors": False,
-            "files_scanned": 1,
-            "duration": 0.532,
-            "assets": [
-                {
-                    "path": "demo-model.pickle",
-                    "type": "pickle",
-                }
-            ],
-        }
-        sbom = {
-            "bomFormat": "CycloneDX",
-            "specVersion": "1.5",
-            "version": 1,
-            "metadata": {"component": {"name": "mock-model"}},
-        }
-        job.report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        job.sbom_path.write_text(json.dumps(sbom, indent=2), encoding="utf-8")
-        with job.condition:
-            job.report_data = report
-            job.returncode = 0
-            job.report_format = "json"
+                "timestamp": time.time(),
+                "why": "This is placeholder data that mirrors the documented report structure.",
+            },
+        ],
+        "has_errors": False,
+        "files_scanned": 1,
+        "duration": 0.532,
+        "assets": [
+            {
+                "path": "demo-model.pickle",
+                "type": "pickle",
+            }
+        ],
+    }
+    sbom = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.5",
+        "version": 1,
+        "metadata": {"component": {"name": "mock-model"}},
+    }
 
-    store.update_status(job, "finished", hint="Mock scan finished. Report ready.")
+    job.report_path.write_text(report, encoding="utf-8")
+    job.sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
+    job.sbom_path.write_text(json.dumps(sbom, indent=2), encoding="utf-8")
+    with job.condition:
+        job.report_data = report
+        job.sidecar_data = sidecar
+        job.returncode = 0
+
+    store.update_status(job, "finished", hint="Mock scan finished. Artifacts ready.")
     store.add_event(job, "done", "Scan complete.")
 
 
@@ -834,28 +779,54 @@ def run_docker_scan(store: JobStore, job: ScanJob, config: dict[str, Any]) -> No
         )
         return
 
-    raw_report = read_report_text(job)
+    if not job.sidecar_path.exists():
+        fail_job(
+            store,
+            job,
+            status="report_missing",
+            error_code="report_missing",
+            message=(
+                "The scan completed, but no JSON sidecar file was created at "
+                f"{job.sidecar_path.name}."
+            ),
+        )
+        return
+
+    if not job.sbom_path.exists():
+        fail_job(
+            store,
+            job,
+            status="report_missing",
+            error_code="report_missing",
+            message=f"The scan completed, but no SBOM file was created at {job.sbom_path.name}.",
+        )
+        return
+
+    report_text = read_report_text(job)
 
     try:
-        report_data = json.loads(raw_report)
-        report_format = "json"
+        sidecar_data = json.loads(job.sidecar_path.read_text(encoding="utf-8", errors="replace"))
     except json.JSONDecodeError:
-        report_data = raw_report
-        report_format = "text"
-        store.add_event(job, "status", "Report was produced as plain text rather than JSON.")
+        fail_job(
+            store,
+            job,
+            status="invalid_report",
+            error_code="invalid_report",
+            message=(
+                "The scan finished, but the JSON sidecar could not be parsed from "
+                f"{job.sidecar_path.name}."
+            ),
+        )
+        return
 
     with job.condition:
-        job.report_data = report_data
-        job.report_format = report_format
+        job.report_data = report_text
+        job.sidecar_data = sidecar_data
 
     store.update_status(
         job,
         "finished",
-        hint=(
-            "Scan finished. Report ready."
-            if report_format == "json"
-            else "Scan finished. Plain-text report ready."
-        ),
+        hint="Scan finished. Report, JSON sidecar, and SBOM are ready.",
     )
     store.add_event(job, "done", "Scan complete.")
 
@@ -927,9 +898,19 @@ def build_job_update_payload(job: ScanJob, events: list[JobEvent]) -> dict[str, 
             "status_label": STATUS_META.get(status, {}).get("label", status.title()),
             "status_hint": STATUS_META.get(status, {}).get("hint", ""),
             "result_url": url_for("job_result", job_id=job.job_id),
-            "raw_report_url": (
-                url_for("download_raw_report", job_id=job.job_id)
+            "report_url": (
+                url_for("download_report", job_id=job.job_id)
                 if job.report_path.exists()
+                else None
+            ),
+            "sidecar_url": (
+                url_for("download_sidecar", job_id=job.job_id)
+                if job.sidecar_path.exists()
+                else None
+            ),
+            "sbom_url": (
+                url_for("download_sbom", job_id=job.job_id)
+                if job.sbom_path.exists()
                 else None
             ),
         }
@@ -960,7 +941,9 @@ def job_event_stream(job: ScanJob, start_index: int = 0) -> Any:
                         "status_label": payload["status_label"],
                         "status_hint": payload["status_hint"],
                         "result_url": payload["result_url"],
-                        "raw_report_url": payload["raw_report_url"],
+                        "report_url": payload["report_url"],
+                        "sidecar_url": payload["sidecar_url"],
+                        "sbom_url": payload["sbom_url"],
                     },
                 )
         else:
@@ -1008,8 +991,6 @@ def create_app() -> Flask:
 
     app.config.update(
         SCANNER_MODE=os.getenv("SCANNER_MODE", "docker").strip().lower(),
-        DEFAULT_OUTPUT_FORMAT=normalize_output_format(os.getenv("DEFAULT_OUTPUT_FORMAT", "text"))
-        or "text",
         DOCKER_BINARY=os.getenv("DOCKER_BINARY", "docker"),
         SCANNER_IMAGE=os.getenv("SCANNER_IMAGE", "modelaudit"),
         SCANNER_COMMAND=os.getenv("SCANNER_COMMAND", "").strip(),
@@ -1060,11 +1041,6 @@ def create_app() -> Flask:
         runtime = {
             "scanner_mode": current_app.config["SCANNER_MODE"],
             "scanner_image": current_app.config["SCANNER_IMAGE"],
-            "output_format_choices": [
-                {"value": value, "label": meta["label"]}
-                for value, meta in OUTPUT_FORMATS.items()
-            ],
-            "default_output_format": current_app.config["DEFAULT_OUTPUT_FORMAT"],
             "required_env_vars": current_app.config["REQUIRED_CONTAINER_ENV_VARS"],
             "container_env_defaults": current_app.config["CONTAINER_ENV_DEFAULTS"],
             "docker_network_mode": docker_network_mode or "default",
@@ -1089,9 +1065,6 @@ def create_app() -> Flask:
     def start_scan() -> Response | str:
         """Create a scan job and redirect to its live progress page."""
         repo_url = request.form.get("repo_url", "").strip()
-        output_format = normalize_output_format(
-            request.form.get("output_format", current_app.config["DEFAULT_OUTPUT_FORMAT"])
-        )
         if not repo_url:
             return (
                 render_template(
@@ -1104,21 +1077,9 @@ def create_app() -> Flask:
                 ),
                 400,
             )
-        if output_format is None:
-            return (
-                render_template(
-                    "error.html",
-                    title="Invalid Output Format",
-                    headline="Invalid Output Format",
-                    message="Choose one of the supported output formats: text, json, or sarif.",
-                    action_label="Back to scanner",
-                    action_url=url_for("index"),
-                ),
-                400,
-            )
 
         store = get_store()
-        job = store.create(repo_url, output_format)
+        job = store.create(repo_url)
 
         thread = threading.Thread(
             target=run_scan_job,
@@ -1166,18 +1127,18 @@ def create_app() -> Flask:
             status = job.status
 
         if status == "finished":
-            report_data = load_report_data(job)
+            report_text = load_report_data(job)
+            sidecar_data = load_sidecar_data(job)
             snapshot = get_store().snapshot(job)
             structured_report = (
-                snapshot["output_format"] == "json"
-                and snapshot["report_format"] == "json"
-                and isinstance(report_data, dict)
-                and "issues" in report_data
+                isinstance(sidecar_data, dict)
+                and "issues" in sidecar_data
             )
             return render_template(
                 "report.html",
                 job=snapshot,
-                report_data=report_data,
+                report_text=report_text,
+                sidecar_data=sidecar_data,
                 structured_report=structured_report,
             )
 
@@ -1198,12 +1159,40 @@ def create_app() -> Flask:
             job.report_path,
             as_attachment=True,
             download_name=f"{job.job_id}-{job.report_path.name}",
-            mimetype=get_download_mimetype(job.output_format),
+            mimetype=get_download_mimetype(job.report_path),
+        )
+
+    @app.get("/jobs/<job_id>/download-sidecar")
+    def download_sidecar(job_id: str) -> Response:
+        """Download the JSON sidecar file for a job."""
+        job = get_job_or_404(job_id)
+        if not job.sidecar_path.exists():
+            abort(404)
+
+        return send_file(
+            job.sidecar_path,
+            as_attachment=True,
+            download_name=f"{job.job_id}-{job.sidecar_path.name}",
+            mimetype=get_download_mimetype(job.sidecar_path),
+        )
+
+    @app.get("/jobs/<job_id>/download-sbom")
+    def download_sbom(job_id: str) -> Response:
+        """Download the JSON SBOM file for a job."""
+        job = get_job_or_404(job_id)
+        if not job.sbom_path.exists():
+            abort(404)
+
+        return send_file(
+            job.sbom_path,
+            as_attachment=True,
+            download_name=f"{job.job_id}-{job.sbom_path.name}",
+            mimetype=get_download_mimetype(job.sbom_path),
         )
 
     @app.get("/jobs/<job_id>/download-raw")
     def download_raw_report(job_id: str) -> Response:
-        """Download the raw report file even if JSON parsing failed."""
+        """Download the plain-text report file regardless of parse state."""
         job = get_job_or_404(job_id)
         if not job.report_path.exists():
             abort(404)
@@ -1212,7 +1201,7 @@ def create_app() -> Flask:
             job.report_path,
             as_attachment=True,
             download_name=f"{job.job_id}-{job.report_path.name}",
-            mimetype=get_download_mimetype(job.output_format),
+            mimetype=get_download_mimetype(job.report_path),
         )
 
     @app.get("/jobs/<job_id>/download-log")
