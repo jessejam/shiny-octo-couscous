@@ -466,11 +466,12 @@ def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
     scanner_args = list(config["SCANNER_FIXED_ARGS"])
 
     scanner_args = [arg for arg in scanner_args if arg != "--stream"]
-    for managed_flag in ("--format", "--sbom", "--output"):
+    for managed_flag in ("--format", "--sbom", "--output", "--timeout"):
         scanner_args = strip_flag_with_value(scanner_args, managed_flag)
     scanner_args.append("--stream")
     scanner_args.extend(["--format", job.output_format])
     scanner_args.extend(["--sbom", job.sbom_path.name])
+    scanner_args.extend(["--timeout", str(config["SCAN_TIMEOUT_SECONDS"])])
 
     if config["DOCKER_NETWORK_MODE"]:
         command.extend(["--network", config["DOCKER_NETWORK_MODE"]])

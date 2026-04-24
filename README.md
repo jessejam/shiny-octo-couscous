@@ -42,7 +42,7 @@ python3 main.py
 - `DOCKER_BINARY`: Docker executable name, default `docker`
 - `SCANNER_IMAGE`: Docker image name, default `modelaudit`
 - `SCANNER_COMMAND`: optional command inside the container; leave empty to use the image entrypoint
-- `SCANNER_FIXED_ARGS`: extra scanner arguments before the repository URL; the app always adds mandatory `--stream`, and the UI selection controls `--format`, `--sbom`, and `--output`
+- `SCANNER_FIXED_ARGS`: extra scanner arguments before the repository URL; the app always adds mandatory `--stream` and `--timeout`, and the UI selection controls `--format`, `--sbom`, and `--output`
 - `REQUIRED_CONTAINER_ENV_VARS`: env vars that must exist before Docker scans start, default `JFROG_URL JFROG_API_TOKEN`
 - `OPTIONAL_CONTAINER_ENV_VARS`: extra env vars to forward into the container when present
 - `PROMPTFOO_DISABLE_TELEMETRY`: forwarded into the container, default `1`
@@ -53,7 +53,7 @@ python3 main.py
 - `USE_EMPTY_ENTRYPOINT`: `false` by default; set it only if you need to override a broken image entrypoint
 - `EXTRA_DOCKER_ARGS`: additional raw Docker flags such as `--add-host` or `--security-opt seccomp=...`
 - `CONTAINER_WORKDIR`: mounted working directory inside the container, default `/work`
-- `SCAN_TIMEOUT_SECONDS`: max duration per scan, default `1800`
+- `SCAN_TIMEOUT_SECONDS`: max duration per scan, default `5400`; the same value is also passed to modelaudit as `--timeout`
 
 In the web form, the user can choose `text`, `json`, or `sarif`. That choice changes:
 
