@@ -35,9 +35,6 @@
       {% if job and job.report_url %}
         <a class="button-link button-link-muted" href="{{ job.report_url }}">Download Report</a>
       {% endif %}
-      {% if job and job.sidecar_url %}
-        <a class="button-link button-link-muted" href="{{ job.sidecar_url }}">Download JSON Sidecar</a>
-      {% endif %}
       {% if job and job.sbom_url %}
         <a class="button-link button-link-muted" href="{{ job.sbom_url }}">Download SBOM</a>
       {% endif %}

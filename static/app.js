@@ -33,17 +33,11 @@
 
   function updateActions(payload) {
     const reportLink = document.querySelector("[data-report-link]");
-    const sidecarLink = document.querySelector("[data-sidecar-link]");
     const sbomLink = document.querySelector("[data-sbom-link]");
 
     if (reportLink && payload.report_url) {
       reportLink.href = payload.report_url;
       reportLink.classList.remove("is-hidden");
-    }
-
-    if (sidecarLink && payload.sidecar_url) {
-      sidecarLink.href = payload.sidecar_url;
-      sidecarLink.classList.remove("is-hidden");
     }
 
     if (sbomLink && payload.sbom_url) {
@@ -69,8 +63,7 @@
 
   function finishIfNeeded(payload, eventSource) {
     if (payload.status === "finished" || payload.status === "failed" || payload.status === "timed_out" ||
-        payload.status === "scanner_unavailable" || payload.status === "report_missing" ||
-        payload.status === "invalid_report") {
+        payload.status === "scanner_unavailable" || payload.status === "report_missing") {
       const hintNode = document.querySelector("[data-job-hint]");
 
       if (eventSource) {
@@ -81,7 +74,7 @@
 
       if (hintNode) {
         hintNode.textContent = payload.report_url
-          ? "Scan finished. You can download the report, JSON sidecar, and SBOM below."
+          ? "Scan finished. You can download the report and SBOM below."
           : "Scan finished. No report file is available for download.";
       }
 
@@ -149,7 +142,6 @@
           status_hint: payload.status_hint,
           result_url: payload.result_url,
           report_url: payload.report_url,
-          sidecar_url: payload.sidecar_url,
           sbom_url: payload.sbom_url
         });
         finishIfNeeded(payload, eventSource);

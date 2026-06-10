@@ -30,7 +30,7 @@
         </div>
         <div class="details-row">
           <span>Artifacts</span>
-          <span><code>report.txt</code>, <code>sidecar.json</code>, <code>sbom.json</code></span>
+          <span><code>report.txt</code>, <code>sbom.json</code></span>
         </div>
         {% if job.started_at %}
           <div class="details-row">
@@ -91,13 +91,6 @@
       {% if job.report_url %}href="{{ job.report_url }}"{% endif %}
     >
       Download Report
-    </a>
-    <a
-      class="button-link button-link-muted{% if not job.sidecar_url %} is-hidden{% endif %}"
-      data-sidecar-link
-      {% if job.sidecar_url %}href="{{ job.sidecar_url }}"{% endif %}
-    >
-      Download JSON Sidecar
     </a>
     <a
       class="button-link button-link-muted{% if not job.sbom_url %} is-hidden{% endif %}"

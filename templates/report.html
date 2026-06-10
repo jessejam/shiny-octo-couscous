@@ -11,71 +11,10 @@
     </div>
     <div class="button-row">
       <a class="button-link" href="{{ url_for('download_report', job_id=job.job_id) }}">Save Report</a>
-      <a class="button-link button-link-muted" href="{{ url_for('download_sidecar', job_id=job.job_id) }}">Save JSON Sidecar</a>
       <a class="button-link button-link-muted" href="{{ url_for('download_sbom', job_id=job.job_id) }}">Save SBOM</a>
       <a class="button-link button-link-muted" href="{{ url_for('index') }}">Scan Another</a>
     </div>
   </section>
-
-  {% if structured_report %}
-    <section class="runtime-grid">
-      <article class="card info-card">
-        <p class="eyebrow">Scanners</p>
-        <h2>{{ sidecar_data.scanner_names | join(", ") if sidecar_data.scanner_names else "n/a" }}</h2>
-        <p>Scanner engines reported in the JSON sidecar.</p>
-      </article>
-
-      <article class="card info-card">
-        <p class="eyebrow">Files Scanned</p>
-        <h2>{{ sidecar_data.files_scanned if sidecar_data.files_scanned is not none else "n/a" }}</h2>
-        <p>Files inspected during this run.</p>
-      </article>
-
-      <article class="card info-card">
-        <p class="eyebrow">Issues</p>
-        <h2>{{ sidecar_data.issues | length if sidecar_data.issues else 0 }}</h2>
-        <p>{{ "Scanner reported errors." if sidecar_data.has_errors else "No scanner-level errors reported." }}</p>
-      </article>
-    </section>
-
-    <section class="card report-section">
-      <div class="console-header">
-        <div>
-          <p class="eyebrow">Findings</p>
-          <h2>Issues</h2>
-        </div>
-      </div>
-
-      {% if sidecar_data.issues %}
-        <div class="issue-list">
-          {% for issue in sidecar_data.issues %}
-            <article class="issue-card severity-{{ issue.severity | default('unknown') }}">
-              <div class="issue-topline">
-                <span class="severity-pill severity-pill-{{ issue.severity | default('unknown') }}">
-                  {{ issue.severity | default("unknown") }}
-                </span>
-                {% if issue.timestamp is defined %}
-                  <span class="issue-timestamp">{{ issue.timestamp | unix_datetime }}</span>
-                {% endif %}
-              </div>
-              <h3>{{ issue.message }}</h3>
-              {% if issue.location %}
-                <p class="issue-location">{{ issue.location }}</p>
-              {% endif %}
-              {% if issue.why %}
-                <p class="issue-why">{{ issue.why }}</p>
-              {% endif %}
-              {% if issue.details %}
-                <pre>{{ issue.details | pretty_json }}</pre>
-              {% endif %}
-            </article>
-          {% endfor %}
-        </div>
-      {% else %}
-        <p class="details-note">No issues were reported in this scan.</p>
-      {% endif %}
-    </section>
-  {% endif %}
 
   <section class="job-grid">
     <article class="card">
@@ -92,7 +31,6 @@
         <div class="details-row details-row-column">
           <span>Artifacts</span>
           <code>{{ job.report_path }}</code>
-          <code>{{ job.sidecar_path }}</code>
           <code>{{ job.sbom_path }}</code>
         </div>
       </div>
@@ -102,8 +40,7 @@
       <p class="eyebrow">Summary</p>
       <h2>Fixed Scanner Outputs</h2>
       <p class="details-note">
-        The main report is plain text, while the JSON sidecar and SBOM are stored separately for
-        deeper automation and debugging.
+        The main report is plain text. The SBOM is stored separately for inventory and debugging.
       </p>
     </article>
   </section>
@@ -112,11 +49,4 @@
     <p class="eyebrow">Plain-Text Report</p>
     <pre>{{ report_text }}</pre>
   </section>
-
-  {% if sidecar_data %}
-    <section class="card report-card">
-      <p class="eyebrow">JSON Sidecar</p>
-      <pre>{{ sidecar_data | pretty_json }}</pre>
-    </section>
-  {% endif %}
 {% endblock %}

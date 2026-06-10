@@ -36,7 +36,6 @@ TERMINAL_STATUSES = {
     "timed_out",
     "scanner_unavailable",
     "report_missing",
-    "invalid_report",
 }
 
 STATUS_META = {
@@ -68,10 +67,6 @@ STATUS_META = {
         "label": "Missing Output",
         "hint": "The scan finished, but one or more expected output files were not found.",
     },
-    "invalid_report": {
-        "label": "Invalid Report",
-        "hint": "The generated JSON sidecar file could not be parsed.",
-    },
 }
 
 ERROR_META = {
@@ -95,11 +90,6 @@ ERROR_META = {
         "message": "The scan completed without producing one or more expected output files.",
         "status_code": 502,
     },
-    "invalid_report": {
-        "title": "Invalid Report",
-        "message": "The JSON sidecar file was created but could not be parsed.",
-        "status_code": 502,
-    },
 }
 
 NETWORK_RESOLUTION_PATTERNS = (
@@ -112,10 +102,18 @@ NETWORK_RESOLUTION_PATTERNS = (
 )
 
 REPORT_FILENAME = "report.txt"
-SIDECAR_FILENAME = "sidecar.json"
 SBOM_FILENAME = "sbom.json"
 TEXT_MIMETYPE = "text/plain; charset=utf-8"
 JSON_MIMETYPE = "application/json"
+S3_REQUIRED_ENV_VARS = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_KEY_ID", "S3_HOST_BASE")
+S3_OPTIONAL_ENV_VARS = (
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_DEFAULT_REGION",
+    "AWS_REGION",
+    "AWS_ENDPOINT_URL",
+)
+SENSITIVE_ENV_MARKERS = ("KEY", "SECRET", "TOKEN", "PASSWORD")
 
 
 def utc_now() -> datetime:
@@ -142,57 +140,44 @@ def get_download_mimetype(path: Path) -> str:
     return JSON_MIMETYPE if path.suffix == ".json" else TEXT_MIMETYPE
 
 
-def strip_flag_with_value(args: list[str], flag: str) -> list[str]:
-    """Remove a CLI flag and its value from an argument list."""
-    cleaned: list[str] = []
-    skip_next = False
-
-    for arg in args:
-        if skip_next:
-            skip_next = False
-            continue
-        if arg == flag:
-            skip_next = True
-            continue
-        if arg.startswith(f"{flag}="):
-            continue
-        cleaned.append(arg)
-
-    return cleaned
+def is_s3_url(value: str) -> bool:
+    """Return True when a scan target is an S3 URL."""
+    return value.strip().lower().startswith("s3://")
 
 
-def format_unix_timestamp(value: Any) -> str:
-    """Format a Unix timestamp value for display in the report."""
-    if value in (None, ""):
-        return "n/a"
-    return datetime.fromtimestamp(float(value), tz=timezone.utc).astimezone().strftime(
-        "%Y-%m-%d %H:%M:%S %Z"
-    )
+def normalize_endpoint_url(value: str) -> str:
+    """Convert a host-style endpoint into a URL accepted by AWS clients."""
+    endpoint = value.strip()
+    if "://" in endpoint:
+        return endpoint
+    return f"https://{endpoint}"
 
 
-def format_duration_seconds(value: Any) -> str:
-    """Format a duration value in seconds with lightweight precision."""
-    if value in (None, ""):
-        return "n/a"
-    return f"{float(value):.3f}s"
+def is_sensitive_env_name(name: str) -> bool:
+    """Return True when an env var name should not expose its value in UI."""
+    normalized = name.upper()
+    return any(marker in normalized for marker in SENSITIVE_ENV_MARKERS)
 
 
-def format_bytes_count(value: Any) -> str:
-    """Format a byte count using simple binary units."""
-    if value in (None, ""):
-        return "n/a"
+def redact_env_assignment(value: str) -> str:
+    """Redact sensitive Docker env assignments before rendering commands."""
+    name, separator, _ = value.partition("=")
+    if separator and is_sensitive_env_name(name):
+        return f"{name}=<redacted>"
+    return value
 
-    size = float(value)
-    units = ["B", "KiB", "MiB", "GiB", "TiB"]
-    unit_index = 0
 
-    while size >= 1024 and unit_index < len(units) - 1:
-        size /= 1024
-        unit_index += 1
-
-    if unit_index == 0:
-        return f"{int(size)} {units[unit_index]}"
-    return f"{size:.1f} {units[unit_index]}"
+def redact_command_for_display(command: list[str]) -> list[str]:
+    """Return a command copy safe to show in templates."""
+    redacted: list[str] = []
+    previous_arg = ""
+    for arg in command:
+        if previous_arg in {"-e", "--env"}:
+            redacted.append(redact_env_assignment(arg))
+        else:
+            redacted.append(arg)
+        previous_arg = arg
+    return redacted
 
 
 @dataclass(slots=True)
@@ -213,7 +198,6 @@ class ScanJob:
     repo_url: str
     work_dir: Path
     report_path: Path
-    sidecar_path: Path
     sbom_path: Path
     log_path: Path
     created_at: datetime = field(default_factory=utc_now)
@@ -226,7 +210,6 @@ class ScanJob:
     command: list[str] = field(default_factory=list)
     events: list[JobEvent] = field(default_factory=list)
     report_data: Any = None
-    sidecar_data: Any = None
     condition: threading.Condition = field(
         default_factory=threading.Condition,
         repr=False,
@@ -235,7 +218,7 @@ class ScanJob:
     @property
     def command_preview(self) -> str:
         """Return a shell-friendly version of the configured command."""
-        return shlex.join(self.command) if self.command else ""
+        return shlex.join(redact_command_for_display(self.command)) if self.command else ""
 
 
 class JobStore:
@@ -258,7 +241,6 @@ class JobStore:
             repo_url=repo_url.strip(),
             work_dir=work_dir,
             report_path=work_dir / REPORT_FILENAME,
-            sidecar_path=work_dir / SIDECAR_FILENAME,
             sbom_path=work_dir / SBOM_FILENAME,
             log_path=work_dir / "scanner.log",
         )
@@ -313,17 +295,11 @@ class JobStore:
         """Build a template-friendly snapshot of the current job state."""
         with job.condition:
             report_text = str(job.report_data) if job.report_data is not None else None
-            sidecar_text = (
-                json.dumps(job.sidecar_data, indent=2, ensure_ascii=False)
-                if job.sidecar_data is not None
-                else None
-            )
             return {
                 "job_id": job.job_id,
                 "repo_url": job.repo_url,
                 "work_dir": str(job.work_dir),
                 "report_path": str(job.report_path),
-                "sidecar_path": str(job.sidecar_path),
                 "sbom_path": str(job.sbom_path),
                 "log_path": str(job.log_path),
                 "created_at": format_timestamp(job.created_at),
@@ -337,15 +313,9 @@ class JobStore:
                 "returncode": job.returncode,
                 "command_preview": job.command_preview,
                 "report_text": report_text,
-                "sidecar_text": sidecar_text,
                 "report_url": (
                     url_for("download_report", job_id=job.job_id)
                     if job.report_path.exists()
-                    else None
-                ),
-                "sidecar_url": (
-                    url_for("download_sidecar", job_id=job.job_id)
-                    if job.sidecar_path.exists()
                     else None
                 ),
                 "sbom_url": (
@@ -389,26 +359,6 @@ def load_report_data(job: ScanJob) -> str:
         return job.report_data
 
 
-def load_sidecar_data(job: ScanJob) -> Any | None:
-    """Load and cache the parsed JSON sidecar for a finished job."""
-    with job.condition:
-        if job.sidecar_data is not None:
-            return job.sidecar_data
-
-    if not job.sidecar_path.exists():
-        return None
-
-    raw_sidecar = job.sidecar_path.read_text(encoding="utf-8", errors="replace")
-    try:
-        sidecar_data = json.loads(raw_sidecar)
-    except json.JSONDecodeError:
-        return None
-
-    with job.condition:
-        job.sidecar_data = sidecar_data
-    return sidecar_data
-
-
 def read_report_text(job: ScanJob) -> str:
     """Read the raw report file contents without parsing JSON."""
     return job.report_path.read_text(encoding="utf-8", errors="replace")
@@ -425,8 +375,56 @@ def read_scanner_log(job: ScanJob) -> str:
     return job.log_path.read_text(encoding="utf-8", errors="replace")
 
 
-def build_container_env(config: dict[str, Any]) -> tuple[list[str], dict[str, str], list[str]]:
+def build_s3_container_env(config: dict[str, Any]) -> tuple[list[str], dict[str, str], list[str]]:
+    """Resolve S3 credentials and compatibility env vars for Docker."""
+    passthrough_vars: list[str] = []
+    explicit_vars: dict[str, str] = {}
+    missing_required: list[str] = []
+
+    access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    secret_key = os.getenv("AWS_SECRET_KEY_ID")
+    standard_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+    host_base = os.getenv("S3_HOST_BASE")
+
+    if access_key:
+        passthrough_vars.append("AWS_ACCESS_KEY_ID")
+    else:
+        missing_required.append("AWS_ACCESS_KEY_ID")
+
+    if secret_key:
+        passthrough_vars.append("AWS_SECRET_KEY_ID")
+        if standard_secret_key:
+            passthrough_vars.append("AWS_SECRET_ACCESS_KEY")
+        else:
+            explicit_vars["AWS_SECRET_ACCESS_KEY"] = secret_key
+    else:
+        missing_required.append("AWS_SECRET_KEY_ID")
+
+    if host_base:
+        passthrough_vars.append("S3_HOST_BASE")
+        if not os.getenv("AWS_ENDPOINT_URL"):
+            explicit_vars["AWS_ENDPOINT_URL"] = normalize_endpoint_url(host_base)
+    else:
+        missing_required.append("S3_HOST_BASE")
+
+    for name in (*S3_OPTIONAL_ENV_VARS, *config["OPTIONAL_CONTAINER_ENV_VARS"]):
+        if os.getenv(name) and name not in passthrough_vars and name not in explicit_vars:
+            passthrough_vars.append(name)
+
+    for name, default_value in config["CONTAINER_ENV_DEFAULTS"].items():
+        explicit_vars[name] = os.getenv(name, default_value)
+
+    return passthrough_vars, explicit_vars, missing_required
+
+
+def build_container_env(
+    config: dict[str, Any],
+    repo_url: str,
+) -> tuple[list[str], dict[str, str], list[str]]:
     """Resolve which environment variables should be forwarded into Docker."""
+    if is_s3_url(repo_url):
+        return build_s3_container_env(config)
+
     passthrough_vars: list[str] = []
     explicit_vars: dict[str, str] = {}
     missing_required: list[str] = []
@@ -451,17 +449,17 @@ def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
     """Construct the Docker command used to run modelaudit."""
     container_workdir = config["CONTAINER_WORKDIR"]
     command = [config["DOCKER_BINARY"], "run", "--rm"]
-    passthrough_vars, explicit_vars, _ = build_container_env(config)
-    scanner_args = list(config["SCANNER_FIXED_ARGS"])
-
-    scanner_args = [arg for arg in scanner_args if arg != "--stream"]
-    for managed_flag in ("--format", "--sbom", "--output", "--json-output", "--timeout"):
-        scanner_args = strip_flag_with_value(scanner_args, managed_flag)
-    scanner_args.append("--stream")
-    scanner_args.extend(["--format", "text"])
-    scanner_args.extend(["--sbom", job.sbom_path.name])
-    scanner_args.extend(["--json-output", job.sidecar_path.name])
-    scanner_args.extend(["--timeout", str(config["SCAN_TIMEOUT_SECONDS"])])
+    passthrough_vars, explicit_vars, _ = build_container_env(config, job.repo_url)
+    scanner_args = [
+        "--format",
+        "text",
+        "--sbom",
+        job.sbom_path.name,
+        "--timeout",
+        str(config["SCAN_TIMEOUT_SECONDS"]),
+        "--output",
+        job.report_path.name,
+    ]
 
     if config["DOCKER_NETWORK_MODE"]:
         command.extend(["--network", config["DOCKER_NETWORK_MODE"]])
@@ -490,7 +488,6 @@ def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
         command.append(config["SCANNER_COMMAND"])
     command.extend(scanner_args)
     command.append(job.repo_url)
-    command.extend(["--output", job.report_path.name])
     return command
 
 
@@ -569,18 +566,16 @@ def run_mock_scan(store: JobStore, job: ScanJob) -> None:
         job.command = [
             "mock-scan",
             "modelaudit",
-            "--stream",
+            "scan",
             "--format",
             "text",
             "--sbom",
             job.sbom_path.name,
-            "--json-output",
-            job.sidecar_path.name,
             "--timeout",
             str(current_app.config["SCAN_TIMEOUT_SECONDS"]),
-            job.repo_url,
             "--output",
             job.report_path.name,
+            job.repo_url,
         ]
 
     store.update_status(job, "running", hint="Mock scan started.")
@@ -590,7 +585,6 @@ def run_mock_scan(store: JobStore, job: ScanJob) -> None:
         "Resolving repository metadata.",
         "Inspecting model files.",
         "Collecting policy findings.",
-        f"Writing {job.sidecar_path.name}.",
         f"Writing {job.sbom_path.name}.",
         f"Writing {job.report_path.name}.",
     ]
@@ -608,45 +602,6 @@ Format: text
 SECURITY FINDINGS
 - Mock finding generated for UI development.
 """
-    sidecar = {
-        "scanner_names": ["pickle"],
-        "start_time": time.time(),
-        "bytes_scanned": 74,
-        "issues": [
-            {
-                "message": "Mock finding generated for UI development.",
-                "severity": "warning",
-                "location": "demo-model.pickle (pos 71)",
-                "details": {
-                    "position": 71,
-                    "opcode": "REDUCE",
-                },
-                "timestamp": time.time(),
-            },
-            {
-                "message": "Replace this item with real scanner output after the first Docker-backed run.",
-                "severity": "critical",
-                "location": "demo-model.pickle (pos 28)",
-                "details": {
-                    "module": "posix",
-                    "function": "system",
-                    "position": 28,
-                    "opcode": "STACK_GLOBAL",
-                },
-                "timestamp": time.time(),
-                "why": "This is placeholder data that mirrors the documented report structure.",
-            },
-        ],
-        "has_errors": False,
-        "files_scanned": 1,
-        "duration": 0.532,
-        "assets": [
-            {
-                "path": "demo-model.pickle",
-                "type": "pickle",
-            }
-        ],
-    }
     sbom = {
         "bomFormat": "CycloneDX",
         "specVersion": "1.5",
@@ -655,11 +610,9 @@ SECURITY FINDINGS
     }
 
     job.report_path.write_text(report, encoding="utf-8")
-    job.sidecar_path.write_text(json.dumps(sidecar, indent=2), encoding="utf-8")
     job.sbom_path.write_text(json.dumps(sbom, indent=2), encoding="utf-8")
     with job.condition:
         job.report_data = report
-        job.sidecar_data = sidecar
         job.returncode = 0
 
     store.update_status(job, "finished", hint="Mock scan finished. Artifacts ready.")
@@ -679,7 +632,7 @@ def run_docker_scan(store: JobStore, job: ScanJob, config: dict[str, Any]) -> No
         )
         return
 
-    _, _, missing_required = build_container_env(config)
+    _, _, missing_required = build_container_env(config, job.repo_url)
     if missing_required:
         fail_job(
             store,
@@ -779,19 +732,6 @@ def run_docker_scan(store: JobStore, job: ScanJob, config: dict[str, Any]) -> No
         )
         return
 
-    if not job.sidecar_path.exists():
-        fail_job(
-            store,
-            job,
-            status="report_missing",
-            error_code="report_missing",
-            message=(
-                "The scan completed, but no JSON sidecar file was created at "
-                f"{job.sidecar_path.name}."
-            ),
-        )
-        return
-
     if not job.sbom_path.exists():
         fail_job(
             store,
@@ -804,29 +744,13 @@ def run_docker_scan(store: JobStore, job: ScanJob, config: dict[str, Any]) -> No
 
     report_text = read_report_text(job)
 
-    try:
-        sidecar_data = json.loads(job.sidecar_path.read_text(encoding="utf-8", errors="replace"))
-    except json.JSONDecodeError:
-        fail_job(
-            store,
-            job,
-            status="invalid_report",
-            error_code="invalid_report",
-            message=(
-                "The scan finished, but the JSON sidecar could not be parsed from "
-                f"{job.sidecar_path.name}."
-            ),
-        )
-        return
-
     with job.condition:
         job.report_data = report_text
-        job.sidecar_data = sidecar_data
 
     store.update_status(
         job,
         "finished",
-        hint="Scan finished. Report, JSON sidecar, and SBOM are ready.",
+        hint="Scan finished. Report and SBOM are ready.",
     )
     store.add_event(job, "done", "Scan complete.")
 
@@ -844,7 +768,6 @@ def run_scan_job(app: Flask, job_id: str) -> None:
             "DOCKER_BINARY": current_app.config["DOCKER_BINARY"],
             "SCANNER_IMAGE": current_app.config["SCANNER_IMAGE"],
             "SCANNER_COMMAND": current_app.config["SCANNER_COMMAND"],
-            "SCANNER_FIXED_ARGS": current_app.config["SCANNER_FIXED_ARGS"],
             "REQUIRED_CONTAINER_ENV_VARS": current_app.config["REQUIRED_CONTAINER_ENV_VARS"],
             "OPTIONAL_CONTAINER_ENV_VARS": current_app.config["OPTIONAL_CONTAINER_ENV_VARS"],
             "CONTAINER_ENV_DEFAULTS": current_app.config["CONTAINER_ENV_DEFAULTS"],
@@ -903,11 +826,6 @@ def build_job_update_payload(job: ScanJob, events: list[JobEvent]) -> dict[str, 
                 if job.report_path.exists()
                 else None
             ),
-            "sidecar_url": (
-                url_for("download_sidecar", job_id=job.job_id)
-                if job.sidecar_path.exists()
-                else None
-            ),
             "sbom_url": (
                 url_for("download_sbom", job_id=job.job_id)
                 if job.sbom_path.exists()
@@ -942,7 +860,6 @@ def job_event_stream(job: ScanJob, start_index: int = 0) -> Any:
                         "status_hint": payload["status_hint"],
                         "result_url": payload["result_url"],
                         "report_url": payload["report_url"],
-                        "sidecar_url": payload["sidecar_url"],
                         "sbom_url": payload["sbom_url"],
                     },
                 )
@@ -992,9 +909,8 @@ def create_app() -> Flask:
     app.config.update(
         SCANNER_MODE=os.getenv("SCANNER_MODE", "docker").strip().lower(),
         DOCKER_BINARY=os.getenv("DOCKER_BINARY", "docker"),
-        SCANNER_IMAGE=os.getenv("SCANNER_IMAGE", "modelaudit"),
-        SCANNER_COMMAND=os.getenv("SCANNER_COMMAND", "").strip(),
-        SCANNER_FIXED_ARGS=shlex.split(os.getenv("SCANNER_FIXED_ARGS", "")),
+        SCANNER_IMAGE=os.getenv("SCANNER_IMAGE", "ghcr.io/promptfoo/modelaudit:latest"),
+        SCANNER_COMMAND=os.getenv("SCANNER_COMMAND", "scan").strip(),
         REQUIRED_CONTAINER_ENV_VARS=shlex.split(
             os.getenv("REQUIRED_CONTAINER_ENV_VARS", "JFROG_URL JFROG_API_TOKEN")
         ),
@@ -1014,26 +930,6 @@ def create_app() -> Flask:
 
     app.extensions["job_store"] = JobStore(scans_root=scans_root)
 
-    @app.template_filter("pretty_json")
-    def pretty_json(value: Any) -> str:
-        """Render JSON values in a human-friendly format."""
-        return json.dumps(value, indent=2, ensure_ascii=False)
-
-    @app.template_filter("unix_datetime")
-    def unix_datetime(value: Any) -> str:
-        """Render Unix timestamps in local time."""
-        return format_unix_timestamp(value)
-
-    @app.template_filter("duration_seconds")
-    def duration_seconds(value: Any) -> str:
-        """Render durations in seconds."""
-        return format_duration_seconds(value)
-
-    @app.template_filter("bytes_human")
-    def bytes_human(value: Any) -> str:
-        """Render byte counts in compact human-readable units."""
-        return format_bytes_count(value)
-
     @app.get("/")
     def index() -> str:
         """Render the main page with scanner runtime details."""
@@ -1042,6 +938,7 @@ def create_app() -> Flask:
             "scanner_mode": current_app.config["SCANNER_MODE"],
             "scanner_image": current_app.config["SCANNER_IMAGE"],
             "required_env_vars": current_app.config["REQUIRED_CONTAINER_ENV_VARS"],
+            "s3_required_env_vars": S3_REQUIRED_ENV_VARS,
             "container_env_defaults": current_app.config["CONTAINER_ENV_DEFAULTS"],
             "docker_network_mode": docker_network_mode or "default",
             "docker_network_summary": (
@@ -1128,18 +1025,11 @@ def create_app() -> Flask:
 
         if status == "finished":
             report_text = load_report_data(job)
-            sidecar_data = load_sidecar_data(job)
             snapshot = get_store().snapshot(job)
-            structured_report = (
-                isinstance(sidecar_data, dict)
-                and "issues" in sidecar_data
-            )
             return render_template(
                 "report.html",
                 job=snapshot,
                 report_text=report_text,
-                sidecar_data=sidecar_data,
-                structured_report=structured_report,
             )
 
         if status in TERMINAL_STATUSES:
@@ -1160,20 +1050,6 @@ def create_app() -> Flask:
             as_attachment=True,
             download_name=f"{job.job_id}-{job.report_path.name}",
             mimetype=get_download_mimetype(job.report_path),
-        )
-
-    @app.get("/jobs/<job_id>/download-sidecar")
-    def download_sidecar(job_id: str) -> Response:
-        """Download the JSON sidecar file for a job."""
-        job = get_job_or_404(job_id)
-        if not job.sidecar_path.exists():
-            abort(404)
-
-        return send_file(
-            job.sidecar_path,
-            as_attachment=True,
-            download_name=f"{job.job_id}-{job.sidecar_path.name}",
-            mimetype=get_download_mimetype(job.sidecar_path),
         )
 
     @app.get("/jobs/<job_id>/download-sbom")

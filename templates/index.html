@@ -16,8 +16,8 @@
       <input
         id="repo_url"
         name="repo_url"
-        type="url"
-        placeholder="https://artifactory.example.corp/.../model-repository"
+        type="text"
+        placeholder="https://artifactory.example.corp/.../model-repository or s3://bucket/model.pt"
         required
         autocomplete="off"
       >
@@ -46,8 +46,8 @@
 
     <article class="card info-card">
       <p class="eyebrow">Artifacts</p>
-      <h2>3 files</h2>
-      <p>Each scan produces <code>report.txt</code>, <code>sidecar.json</code>, and <code>sbom.json</code>.</p>
+      <h2>2 files</h2>
+      <p>Each scan produces <code>report.txt</code> and <code>sbom.json</code>.</p>
     </article>
   </section>
 
@@ -57,8 +57,12 @@
       <code>{{ runtime.scanner_image }}</code>
     </div>
     <div class="details-row details-row-column">
-      <span>Required auth env vars</span>
+      <span>Required JFrog env vars</span>
       <code>{{ runtime.required_env_vars | join(', ') }}</code>
+    </div>
+    <div class="details-row details-row-column">
+      <span>Required S3 env vars</span>
+      <code>{{ runtime.s3_required_env_vars | join(', ') }}</code>
     </div>
     <div class="details-row details-row-column">
       <span>Telemetry env defaults</span>
@@ -75,8 +79,9 @@
     <p class="details-note">
       For local UI checks without Docker, run the app with <code>SCANNER_MODE=mock</code>.
       For the real scanner, keep <code>SCANNER_MODE=docker</code> and provide the image and any
-      extra hardening flags through environment variables. If the scan needs to reach a remote
-      repository host, avoid <code>DOCKER_NETWORK_MODE=none</code>.
+      extra hardening flags through environment variables. For <code>s3://</code> scans, provide
+      the S3 env vars above; the app forwards them only for S3 targets. If the scan needs to reach
+      a remote repository host, avoid <code>DOCKER_NETWORK_MODE=none</code>.
     </p>
   </section>
 {% endblock %}

@@ -153,6 +153,7 @@ body {
 }
 
 input[type="url"],
+input[type="text"],
 select {
   width: 100%;
   padding: 1rem 1.1rem;
@@ -164,6 +165,7 @@ select {
 }
 
 input[type="url"]:focus,
+input[type="text"]:focus,
 select:focus {
   outline: 2px solid rgba(15, 118, 110, 0.22);
   border-color: rgba(15, 118, 110, 0.55);
@@ -299,7 +301,6 @@ pre,
 
 .status-failed,
 .status-scanner_unavailable,
-.status-invalid_report,
 .status-report_missing,
 .status-timed_out {
   background: rgba(180, 35, 24, 0.1);
@@ -365,91 +366,6 @@ pre,
   border-radius: 1rem;
   background: rgba(16, 32, 33, 0.96);
   color: #eff7f2;
-}
-
-.report-section {
-  padding: clamp(1.2rem, 2vw, 2rem);
-}
-
-.issue-list,
-.asset-list {
-  display: grid;
-  gap: 1rem;
-}
-
-.issue-card,
-.asset-card {
-  padding: 1.1rem 1.2rem;
-  border: 1px solid var(--line);
-  border-radius: 1.2rem;
-  background: rgba(255, 255, 255, 0.66);
-}
-
-.issue-card h3,
-.asset-card h3 {
-  margin: 0.8rem 0 0.45rem;
-  font-size: 1.15rem;
-}
-
-.issue-topline {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.severity-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.3rem 0.7rem;
-  border-radius: 999px;
-  font-size: 0.82rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.severity-pill-critical {
-  background: rgba(180, 35, 24, 0.12);
-  color: var(--error);
-}
-
-.severity-pill-warning {
-  background: rgba(180, 83, 9, 0.14);
-  color: var(--warning);
-}
-
-.severity-pill-info,
-.severity-pill-unknown {
-  background: rgba(31, 41, 51, 0.08);
-  color: var(--ink);
-}
-
-.issue-card pre {
-  margin: 0.9rem 0 0;
-  overflow: auto;
-  padding: 1rem;
-  border-radius: 1rem;
-  background: rgba(16, 32, 33, 0.96);
-  color: #eff7f2;
-}
-
-.issue-location,
-.issue-why,
-.issue-timestamp,
-.asset-card p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.55;
-}
-
-.severity-critical {
-  border-color: rgba(180, 35, 24, 0.2);
-}
-
-.severity-warning {
-  border-color: rgba(180, 83, 9, 0.2);
 }
 
 .wrap {
