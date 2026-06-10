@@ -451,6 +451,7 @@ def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
     command = [config["DOCKER_BINARY"], "run", "--rm"]
     passthrough_vars, explicit_vars, _ = build_container_env(config, job.repo_url)
     scanner_args = [
+        "--verbose",
         "--format",
         "text",
         "--sbom",
@@ -567,6 +568,7 @@ def run_mock_scan(store: JobStore, job: ScanJob) -> None:
             "mock-scan",
             "modelaudit",
             "scan",
+            "--verbose",
             "--format",
             "text",
             "--sbom",

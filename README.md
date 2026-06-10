@@ -68,8 +68,10 @@ python3 main.py
 - `CONTAINER_WORKDIR`: mounted working directory inside the container, default `/work`
 - `SCAN_TIMEOUT_SECONDS`: max duration per scan, default `5400`; the same value is also passed to modelaudit as `--timeout`
 
-The app passes these scanner arguments itself: `--format text`, `--sbom sbom.json`,
-`--output report.txt`, and `--timeout`.
+The app passes these scanner arguments itself: `--verbose`, `--format text`,
+`--sbom sbom.json`, `--output report.txt`, and `--timeout <SCAN_TIMEOUT_SECONDS>`.
+By default, `SCAN_TIMEOUT_SECONDS` is `5400`, so the default scanner timeout value is
+`5400` seconds.
 
 Each scan always produces these files:
 
