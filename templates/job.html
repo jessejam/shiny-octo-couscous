@@ -30,7 +30,11 @@
         </div>
         <div class="details-row">
           <span>Artifacts</span>
-          <span><code>report.txt</code>, <code>sbom.json</code></span>
+          <span>{{ job.artifact_summary }}</span>
+        </div>
+        <div class="details-row">
+          <span>Options</span>
+          <span>{{ job.option_summary }}</span>
         </div>
         {% if job.started_at %}
           <div class="details-row">
@@ -63,7 +67,7 @@
         <p class="eyebrow">Realtime Output</p>
         <h2>Scanner Logs</h2>
       </div>
-      <span class="console-indicator">streaming</span>
+      <span class="console-indicator" data-stream-state>streaming</span>
     </div>
     <div
       class="console"

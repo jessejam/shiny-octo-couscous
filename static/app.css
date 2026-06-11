@@ -1,17 +1,17 @@
 :root {
-  --bg: #f3efe5;
-  --bg-deep: #d8ddcf;
-  --ink: #1f2933;
-  --muted: #5f6c76;
-  --card: rgba(255, 252, 246, 0.88);
-  --line: rgba(31, 41, 51, 0.12);
+  --bg: #f6f8f7;
+  --bg-deep: #e8eeeb;
+  --ink: #1d2935;
+  --muted: #65717d;
+  --card: rgba(255, 255, 255, 0.92);
+  --line: rgba(29, 41, 53, 0.14);
   --accent: #0f766e;
   --accent-strong: #0b5d57;
   --warning: #b45309;
   --error: #b42318;
   --success: #18794e;
-  --shadow: 0 22px 60px rgba(31, 41, 51, 0.12);
-  --radius: 24px;
+  --shadow: 0 16px 40px rgba(29, 41, 53, 0.08);
+  --radius: 8px;
 }
 
 * {
@@ -23,33 +23,9 @@ body {
   min-height: 100vh;
   color: var(--ink);
   background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.18), transparent 30%),
-    radial-gradient(circle at top right, rgba(180, 83, 9, 0.16), transparent 28%),
+    linear-gradient(135deg, rgba(15, 118, 110, 0.08), transparent 28rem),
     linear-gradient(180deg, var(--bg), var(--bg-deep));
   font-family: "Avenir Next", "Trebuchet MS", "Helvetica Neue", sans-serif;
-}
-
-.page-glow {
-  position: fixed;
-  inset: auto;
-  width: 22rem;
-  height: 22rem;
-  border-radius: 999px;
-  filter: blur(70px);
-  opacity: 0.45;
-  pointer-events: none;
-}
-
-.page-glow-left {
-  top: -6rem;
-  left: -8rem;
-  background: rgba(15, 118, 110, 0.3);
-}
-
-.page-glow-right {
-  top: 8rem;
-  right: -10rem;
-  background: rgba(180, 83, 9, 0.24);
 }
 
 .topbar {
@@ -81,8 +57,8 @@ body {
   place-items: center;
   width: 3rem;
   height: 3rem;
-  border-radius: 1rem;
-  background: linear-gradient(135deg, var(--accent), #1f9d8d);
+  border-radius: var(--radius);
+  background: var(--accent);
   color: white;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -99,28 +75,28 @@ body {
 
 .card {
   background: var(--card);
-  border: 1px solid rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
 }
 
 .hero,
 .details-card,
 .console-card,
 .error-card,
+.info-card,
 .report-card,
 .result-header,
 .job-grid .card {
-  padding: clamp(1.2rem, 2vw, 2rem);
+  padding: clamp(1rem, 2vw, 1.75rem);
 }
 
 .hero h1,
 .result-header h1,
 .error-card h1 {
   margin: 0;
-  font-size: clamp(2rem, 4vw, 3.25rem);
-  line-height: 0.98;
+  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  line-height: 1.06;
   font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
   font-weight: 700;
 }
@@ -158,7 +134,7 @@ select {
   width: 100%;
   padding: 1rem 1.1rem;
   border: 1px solid var(--line);
-  border-radius: 1rem;
+  border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.82);
   font: inherit;
   color: inherit;
@@ -171,6 +147,53 @@ select:focus {
   border-color: rgba(15, 118, 110, 0.55);
 }
 
+.scan-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  min-inline-size: 0;
+  padding: 0;
+  border: 0;
+}
+
+.scan-options legend {
+  grid-column: 1 / -1;
+  margin-bottom: 0.25rem;
+  font-weight: 700;
+}
+
+.checkbox-option {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  min-height: 4rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--ink);
+}
+
+.checkbox-option span,
+.checkbox-option strong,
+.checkbox-option small {
+  display: block;
+}
+
+.checkbox-option small {
+  margin-top: 0.15rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.checkbox-option input {
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.2rem;
+  accent-color: var(--accent);
+}
+
 button,
 .button-link {
   display: inline-flex;
@@ -180,8 +203,8 @@ button,
   min-height: 3rem;
   padding: 0.8rem 1.1rem;
   border: none;
-  border-radius: 999px;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  border-radius: var(--radius);
+  background: var(--accent);
   color: white;
   font: inherit;
   font-weight: 700;
@@ -189,9 +212,26 @@ button,
   cursor: pointer;
 }
 
+button:hover,
+.button-link:hover {
+  background: var(--accent-strong);
+}
+
+button:focus-visible,
+.button-link:focus-visible,
+.ghost-link:focus-visible,
+.checkbox-option:focus-within {
+  outline: 3px solid rgba(15, 118, 110, 0.22);
+  outline-offset: 2px;
+}
+
 .button-link-muted {
   background: rgba(31, 41, 51, 0.08);
   color: var(--ink);
+}
+
+.button-link-muted:hover {
+  background: rgba(31, 41, 51, 0.14);
 }
 
 .ghost-link {
@@ -200,11 +240,15 @@ button,
   font-weight: 700;
 }
 
+.ghost-link:hover {
+  color: var(--ink);
+}
+
 .runtime-grid,
 .job-grid {
   display: grid;
   gap: 1.2rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .job-grid {
@@ -215,6 +259,7 @@ button,
 .job-grid h2 {
   margin: 0;
   font-size: 1.35rem;
+  line-height: 1.25;
 }
 
 .info-card p,
@@ -231,6 +276,7 @@ button,
 .details-row {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: 1rem;
   padding-bottom: 0.85rem;
   border-bottom: 1px solid var(--line);
@@ -249,6 +295,10 @@ code,
 pre,
 .console {
   font-family: "SFMono-Regular", "Menlo", "Monaco", "Liberation Mono", monospace;
+}
+
+code {
+  overflow-wrap: anywhere;
 }
 
 .command-preview {
@@ -325,7 +375,7 @@ pre,
   max-height: 28rem;
   overflow: auto;
   padding: 1rem;
-  border-radius: 1.2rem;
+  border-radius: var(--radius);
   background: #102021;
   color: #f5f9f7;
 }
@@ -363,7 +413,7 @@ pre,
   margin: 0;
   overflow: auto;
   padding: 1.2rem;
-  border-radius: 1rem;
+  border-radius: var(--radius);
   background: rgba(16, 32, 33, 0.96);
   color: #eff7f2;
 }
@@ -372,9 +422,18 @@ pre,
   overflow-wrap: anywhere;
 }
 
+@media (max-width: 1100px) {
+  .runtime-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 900px) {
-  .runtime-grid,
   .job-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .scan-options {
     grid-template-columns: 1fr;
   }
 
@@ -388,5 +447,28 @@ pre,
   .console-line {
     grid-template-columns: 1fr;
     gap: 0.3rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .runtime-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .button-row,
+  .job-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .button-link,
+  button {
+    width: 100%;
+  }
+
+  .details-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.35rem;
   }
 }

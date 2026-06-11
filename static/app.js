@@ -65,6 +65,7 @@
     if (payload.status === "finished" || payload.status === "failed" || payload.status === "timed_out" ||
         payload.status === "scanner_unavailable" || payload.status === "report_missing") {
       const hintNode = document.querySelector("[data-job-hint]");
+      const streamStateNode = document.querySelector("[data-stream-state]");
 
       if (eventSource) {
         eventSource.close();
@@ -72,10 +73,16 @@
 
       updateActions(payload);
 
+      if (streamStateNode) {
+        streamStateNode.textContent = payload.status === "finished" ? "complete" : "stopped";
+      }
+
       if (hintNode) {
-        hintNode.textContent = payload.report_url
-          ? "Scan finished. You can download the report and SBOM below."
-          : "Scan finished. No report file is available for download.";
+        hintNode.textContent = payload.status_hint || (
+          payload.report_url
+            ? "Scan finished. You can download the available artifacts below."
+            : "Scan finished. No report file is available for download."
+        );
       }
 
       return true;

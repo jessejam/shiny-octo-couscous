@@ -10,11 +10,13 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from flask import (
     Flask,
@@ -153,6 +155,19 @@ def normalize_endpoint_url(value: str) -> str:
     return f"https://{endpoint}"
 
 
+def get_url_host(value: str) -> str:
+    """Extract a lowercase hostname from a URL-like value."""
+    raw_value = value.strip()
+    if not raw_value:
+        return ""
+    if "://" not in raw_value:
+        raw_value = f"https://{raw_value}"
+    try:
+        return (urlparse(raw_value).hostname or "").strip().lower()
+    except ValueError:
+        return ""
+
+
 def is_sensitive_env_name(name: str) -> bool:
     """Return True when an env var name should not expose its value in UI."""
     normalized = name.upper()
@@ -180,6 +195,15 @@ def redact_command_for_display(command: list[str]) -> list[str]:
     return redacted
 
 
+def status_hint_for_job(job: "ScanJob") -> str:
+    """Return the best current status hint for a job."""
+    if job.status == "finished" and job.dry_run:
+        return "Dry run finished. Diagnostic report and scanner log are ready."
+    if job.status == "finished" and not job.sbom_path.exists():
+        return "Scan finished. Report and scanner log are ready."
+    return STATUS_META.get(job.status, {}).get("hint", "")
+
+
 @dataclass(slots=True)
 class JobEvent:
     """A single status or log entry emitted during a scan."""
@@ -196,6 +220,9 @@ class ScanJob:
 
     job_id: str
     repo_url: str
+    show_progress: bool
+    debug: bool
+    dry_run: bool
     work_dir: Path
     report_path: Path
     sbom_path: Path
@@ -220,6 +247,16 @@ class ScanJob:
         """Return a shell-friendly version of the configured command."""
         return shlex.join(redact_command_for_display(self.command)) if self.command else ""
 
+    @property
+    def option_summary(self) -> str:
+        """Return a compact description of UI-selected scanner options."""
+        states = [
+            f"progress {'on' if self.show_progress else 'off'}",
+            f"debug {'on' if self.debug else 'off'}",
+            f"dry run {'on' if self.dry_run else 'off'}",
+        ]
+        return ", ".join(states)
+
 
 class JobStore:
     """Thread-safe storage for scan jobs and their event streams."""
@@ -230,7 +267,14 @@ class JobStore:
         self._jobs: dict[str, ScanJob] = {}
         self._lock = threading.Lock()
 
-    def create(self, repo_url: str) -> ScanJob:
+    def create(
+        self,
+        repo_url: str,
+        *,
+        show_progress: bool = True,
+        debug: bool = False,
+        dry_run: bool = False,
+    ) -> ScanJob:
         """Create a new scan job and its working directory."""
         job_id = uuid.uuid4().hex[:12]
         work_dir = self.scans_root / job_id
@@ -239,6 +283,9 @@ class JobStore:
         job = ScanJob(
             job_id=job_id,
             repo_url=repo_url.strip(),
+            show_progress=show_progress,
+            debug=debug,
+            dry_run=dry_run,
             work_dir=work_dir,
             report_path=work_dir / REPORT_FILENAME,
             sbom_path=work_dir / SBOM_FILENAME,
@@ -298,6 +345,10 @@ class JobStore:
             return {
                 "job_id": job.job_id,
                 "repo_url": job.repo_url,
+                "show_progress": job.show_progress,
+                "debug": job.debug,
+                "dry_run": job.dry_run,
+                "option_summary": job.option_summary,
                 "work_dir": str(job.work_dir),
                 "report_path": str(job.report_path),
                 "sbom_path": str(job.sbom_path),
@@ -307,11 +358,16 @@ class JobStore:
                 "finished_at": format_timestamp(job.finished_at),
                 "status": job.status,
                 "status_label": STATUS_META.get(job.status, {}).get("label", job.status.title()),
-                "status_hint": STATUS_META.get(job.status, {}).get("hint", ""),
+                "status_hint": status_hint_for_job(job),
                 "error_code": job.error_code,
                 "error_message": job.error_message,
                 "returncode": job.returncode,
                 "command_preview": job.command_preview,
+                "artifact_summary": (
+                    f"{REPORT_FILENAME}, {SBOM_FILENAME}"
+                    if job.sbom_path.exists() or not job.dry_run
+                    else REPORT_FILENAME
+                ),
                 "report_text": report_text,
                 "report_url": (
                     url_for("download_report", job_id=job.job_id)
@@ -370,9 +426,32 @@ def append_scanner_log(job: ScanJob, chunk: str) -> None:
         handle.write(chunk)
 
 
+def append_python_traceback(job: ScanJob, heading: str) -> None:
+    """Append the active Python exception traceback to the job scanner log."""
+    append_scanner_log(job, f"\n[{heading}]\n")
+    append_scanner_log(job, traceback.format_exc())
+    append_scanner_log(job, "\n")
+
+
 def read_scanner_log(job: ScanJob) -> str:
     """Read the raw scanner log for a job."""
     return job.log_path.read_text(encoding="utf-8", errors="replace")
+
+
+def write_dry_run_report_from_log(job: ScanJob) -> str:
+    """Create a report artifact from scanner output for dry-run jobs."""
+    log_text = read_scanner_log(job).strip()
+    report_text = (
+        "DRY RUN SUMMARY\n"
+        "\n"
+        f"Target: {job.repo_url}\n"
+        "Mode: preview only; no files should be downloaded for scanning.\n"
+        "\n"
+        "SCANNER OUTPUT\n"
+        f"{log_text or 'The scanner completed dry-run mode without writing additional output.'}\n"
+    )
+    job.report_path.write_text(report_text, encoding="utf-8")
+    return report_text
 
 
 def build_s3_container_env(config: dict[str, Any]) -> tuple[list[str], dict[str, str], list[str]]:
@@ -439,10 +518,45 @@ def build_container_env(
         if os.getenv(name):
             passthrough_vars.append(name)
 
+    if os.getenv("MODELAUDIT_JFROG_ALLOWED_HOSTS"):
+        if "MODELAUDIT_JFROG_ALLOWED_HOSTS" not in passthrough_vars:
+            passthrough_vars.append("MODELAUDIT_JFROG_ALLOWED_HOSTS")
+    else:
+        jfrog_host = get_url_host(os.getenv("JFROG_URL", ""))
+        if jfrog_host:
+            explicit_vars["MODELAUDIT_JFROG_ALLOWED_HOSTS"] = jfrog_host
+
     for name, default_value in config["CONTAINER_ENV_DEFAULTS"].items():
         explicit_vars[name] = os.getenv(name, default_value)
 
     return passthrough_vars, explicit_vars, missing_required
+
+
+def build_scanner_args(job: ScanJob, timeout_seconds: int) -> list[str]:
+    """Build modelaudit scan arguments from job options."""
+    scanner_args: list[str] = []
+
+    if job.show_progress:
+        scanner_args.append("--progress")
+    if job.debug:
+        scanner_args.append("--verbose")
+    if job.dry_run:
+        scanner_args.append("--dry-run")
+
+    scanner_args.extend(
+        [
+            "--format",
+            "text",
+            "--sbom",
+            job.sbom_path.name,
+            "--timeout",
+            str(timeout_seconds),
+            "--output",
+            job.report_path.name,
+            "--no-cache",
+        ]
+    )
+    return scanner_args
 
 
 def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
@@ -450,17 +564,11 @@ def build_docker_command(job: ScanJob, config: dict[str, Any]) -> list[str]:
     container_workdir = config["CONTAINER_WORKDIR"]
     command = [config["DOCKER_BINARY"], "run", "--rm"]
     passthrough_vars, explicit_vars, _ = build_container_env(config, job.repo_url)
-    scanner_args = [
-        "--verbose",
-        "--format",
-        "text",
-        "--sbom",
-        job.sbom_path.name,
-        "--timeout",
-        str(config["SCAN_TIMEOUT_SECONDS"]),
-        "--output",
-        job.report_path.name,
-    ]
+    if "HOME" not in passthrough_vars and "HOME" not in explicit_vars:
+        explicit_vars["HOME"] = container_workdir
+    if "XDG_CACHE_HOME" not in passthrough_vars and "XDG_CACHE_HOME" not in explicit_vars:
+        explicit_vars["XDG_CACHE_HOME"] = f"{container_workdir}/.cache"
+    scanner_args = build_scanner_args(job, config["SCAN_TIMEOUT_SECONDS"])
 
     if config["DOCKER_NETWORK_MODE"]:
         command.extend(["--network", config["DOCKER_NETWORK_MODE"]])
@@ -568,34 +676,55 @@ def run_mock_scan(store: JobStore, job: ScanJob) -> None:
             "mock-scan",
             "modelaudit",
             "scan",
-            "--verbose",
-            "--format",
-            "text",
-            "--sbom",
-            job.sbom_path.name,
-            "--timeout",
-            str(current_app.config["SCAN_TIMEOUT_SECONDS"]),
-            "--output",
-            job.report_path.name,
-            job.repo_url,
         ]
+        job.command.extend(
+            build_scanner_args(job, current_app.config["SCAN_TIMEOUT_SECONDS"])
+        )
+        job.command.append(job.repo_url)
 
     store.update_status(job, "running", hint="Mock scan started.")
 
-    mock_steps = [
-        "Preparing isolated scan workspace.",
-        "Resolving repository metadata.",
-        "Inspecting model files.",
-        "Collecting policy findings.",
-        f"Writing {job.sbom_path.name}.",
-        f"Writing {job.report_path.name}.",
-    ]
+    mock_steps = ["Preparing isolated scan workspace."]
+    if job.show_progress:
+        mock_steps.append("Progress reporting enabled.")
+    if job.debug:
+        mock_steps.append("Verbose debug output enabled.")
+    if job.dry_run:
+        mock_steps.extend(
+            [
+                "Dry run enabled: previewing repository contents only.",
+                "Resolving repository metadata.",
+                "Preview found 1 candidate file totaling 42 MB.",
+                f"Writing {job.report_path.name}.",
+            ]
+        )
+    else:
+        mock_steps.extend(
+            [
+                "Resolving repository metadata.",
+                "Inspecting model files.",
+                "Collecting policy findings.",
+                f"Writing {job.sbom_path.name}.",
+                f"Writing {job.report_path.name}.",
+            ]
+        )
 
     for step in mock_steps:
         store.add_event(job, "log", step)
         time.sleep(0.9)
 
-    report = """\
+    if job.dry_run:
+        report = f"""\
+DRY RUN SUMMARY
+Target: {job.repo_url}
+Files: 1
+Total size: 42 MB
+
+No files were downloaded or scanned in mock dry-run mode.
+"""
+        job.report_path.write_text(report, encoding="utf-8")
+    else:
+        report = """\
 SCAN SUMMARY
 Duration: 0.532s
 Files: 1
@@ -604,20 +733,28 @@ Format: text
 SECURITY FINDINGS
 - Mock finding generated for UI development.
 """
-    sbom = {
-        "bomFormat": "CycloneDX",
-        "specVersion": "1.5",
-        "version": 1,
-        "metadata": {"component": {"name": "mock-model"}},
-    }
+        sbom = {
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.5",
+            "version": 1,
+            "metadata": {"component": {"name": "mock-model"}},
+        }
+        job.report_path.write_text(report, encoding="utf-8")
+        job.sbom_path.write_text(json.dumps(sbom, indent=2), encoding="utf-8")
 
-    job.report_path.write_text(report, encoding="utf-8")
-    job.sbom_path.write_text(json.dumps(sbom, indent=2), encoding="utf-8")
     with job.condition:
         job.report_data = report
         job.returncode = 0
 
-    store.update_status(job, "finished", hint="Mock scan finished. Artifacts ready.")
+    store.update_status(
+        job,
+        "finished",
+        hint=(
+            "Mock dry run finished. Diagnostic report ready."
+            if job.dry_run
+            else "Mock scan finished. Artifacts ready."
+        ),
+    )
     store.add_event(job, "done", "Scan complete.")
 
 
@@ -666,6 +803,7 @@ def run_docker_scan(store: JobStore, job: ScanJob, config: dict[str, Any]) -> No
             bufsize=1,
         )
     except OSError as exc:
+        append_python_traceback(job, "Python traceback while starting scanner")
         fail_job(
             store,
             job,
@@ -724,7 +862,9 @@ def run_docker_scan(store: JobStore, job: ScanJob, config: dict[str, Any]) -> No
         )
         return
 
-    if not job.report_path.exists():
+    if not job.report_path.exists() and job.dry_run:
+        report_text = write_dry_run_report_from_log(job)
+    elif not job.report_path.exists():
         fail_job(
             store,
             job,
@@ -733,8 +873,10 @@ def run_docker_scan(store: JobStore, job: ScanJob, config: dict[str, Any]) -> No
             message=f"The scan completed, but no report file was created at {job.report_path.name}.",
         )
         return
+    else:
+        report_text = read_report_text(job)
 
-    if not job.sbom_path.exists():
+    if not job.sbom_path.exists() and not job.dry_run:
         fail_job(
             store,
             job,
@@ -744,15 +886,17 @@ def run_docker_scan(store: JobStore, job: ScanJob, config: dict[str, Any]) -> No
         )
         return
 
-    report_text = read_report_text(job)
-
     with job.condition:
         job.report_data = report_text
 
     store.update_status(
         job,
         "finished",
-        hint="Scan finished. Report and SBOM are ready.",
+        hint=(
+            "Dry run finished. Diagnostic report and scanner log are ready."
+            if job.dry_run
+            else "Scan finished. Report and SBOM are ready."
+        ),
     )
     store.add_event(job, "done", "Scan complete.")
 
@@ -790,6 +934,7 @@ def run_scan_job(app: Flask, job_id: str) -> None:
             with job.condition:
                 if job.status in TERMINAL_STATUSES:
                     return
+            append_python_traceback(job, "Python traceback while running scan job")
             fail_job(
                 store,
                 job,
@@ -821,7 +966,7 @@ def build_job_update_payload(job: ScanJob, events: list[JobEvent]) -> dict[str, 
             "event_count": len(job.events),
             "status": status,
             "status_label": STATUS_META.get(status, {}).get("label", status.title()),
-            "status_hint": STATUS_META.get(status, {}).get("hint", ""),
+            "status_hint": status_hint_for_job(job),
             "result_url": url_for("job_result", job_id=job.job_id),
             "report_url": (
                 url_for("download_report", job_id=job.job_id)
@@ -978,7 +1123,19 @@ def create_app() -> Flask:
             )
 
         store = get_store()
-        job = store.create(repo_url)
+
+        def is_checkbox_enabled(name: str, *, default: bool = False) -> bool:
+            values = request.form.getlist(name)
+            if not values:
+                return default
+            return "on" in values
+
+        job = store.create(
+            repo_url,
+            show_progress=is_checkbox_enabled("show_progress", default=True),
+            debug=is_checkbox_enabled("debug"),
+            dry_run=is_checkbox_enabled("dry_run"),
+        )
 
         thread = threading.Thread(
             target=run_scan_job,
@@ -1041,11 +1198,10 @@ def create_app() -> Flask:
 
     @app.get("/jobs/<job_id>/download")
     def download_report(job_id: str) -> Response:
-        """Download the finished report file for a job."""
+        """Download the report file for a job whenever one was produced."""
         job = get_job_or_404(job_id)
-        with job.condition:
-            if job.status != "finished" or not job.report_path.exists():
-                abort(404)
+        if not job.report_path.exists():
+            abort(404)
 
         return send_file(
             job.report_path,

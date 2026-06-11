@@ -6,12 +6,14 @@
   <section class="card result-header">
     <div>
       <p class="eyebrow">Scan Result</p>
-      <h1>Artifacts Ready</h1>
+      <h1>{{ "Diagnostics Ready" if job.dry_run else "Artifacts Ready" }}</h1>
       <p class="lede">{{ job.repo_url }}</p>
     </div>
     <div class="button-row">
-      <a class="button-link" href="{{ url_for('download_report', job_id=job.job_id) }}">Save Report</a>
-      <a class="button-link button-link-muted" href="{{ url_for('download_sbom', job_id=job.job_id) }}">Save SBOM</a>
+      <a class="button-link" href="{{ url_for('download_report', job_id=job.job_id) }}">Download Report</a>
+      {% if job.sbom_url %}
+        <a class="button-link button-link-muted" href="{{ job.sbom_url }}">Download SBOM</a>
+      {% endif %}
       <a class="button-link button-link-muted" href="{{ url_for('index') }}">Scan Another</a>
     </div>
   </section>
@@ -31,16 +33,26 @@
         <div class="details-row details-row-column">
           <span>Artifacts</span>
           <code>{{ job.report_path }}</code>
-          <code>{{ job.sbom_path }}</code>
+          {% if job.sbom_url %}
+            <code>{{ job.sbom_path }}</code>
+          {% endif %}
+        </div>
+        <div class="details-row">
+          <span>Options</span>
+          <span>{{ job.option_summary }}</span>
         </div>
       </div>
     </article>
 
     <article class="card">
       <p class="eyebrow">Summary</p>
-      <h2>Fixed Scanner Outputs</h2>
+      <h2>{{ "Dry Run Output" if job.dry_run else "Fixed Scanner Outputs" }}</h2>
       <p class="details-note">
-        The main report is plain text. The SBOM is stored separately for inventory and debugging.
+        {% if job.dry_run %}
+          The dry-run report is plain text and captures the scanner preview output.
+        {% else %}
+          The main report is plain text. The SBOM is stored separately for inventory and debugging.
+        {% endif %}
       </p>
     </article>
   </section>

@@ -68,16 +68,28 @@ python3 main.py
 - `CONTAINER_WORKDIR`: mounted working directory inside the container, default `/work`
 - `SCAN_TIMEOUT_SECONDS`: max duration per scan, default `5400`; the same value is also passed to modelaudit as `--timeout`
 
-The app passes these scanner arguments itself: `--verbose`, `--format text`,
-`--sbom sbom.json`, `--output report.txt`, and `--timeout <SCAN_TIMEOUT_SECONDS>`.
+The app passes these scanner arguments itself: `--format text`, `--sbom sbom.json`,
+`--output report.txt`, and `--timeout <SCAN_TIMEOUT_SECONDS>`.
+The app also passes `--no-cache` because scans run in `docker run --rm` containers and there is
+no useful persistent ModelAudit cache between jobs.
 By default, `SCAN_TIMEOUT_SECONDS` is `5400`, so the default scanner timeout value is
 `5400` seconds.
 
-Each scan always produces these files:
+The scan form has per-job scanner options:
+
+- Show progress: checked by default; adds `--progress`
+- Show debug info: unchecked by default; adds `--verbose`
+- Dry run: unchecked by default; adds `--dry-run`
+
+Normal scans produce these files:
 
 - `report.txt`: the short plain-text report shown to the user
 - `sbom.json`: the generated SBOM output
 - `scanner.log`: the raw stdout/stderr stream captured by the app
+
+Dry runs are intended for diagnostics. If ModelAudit does not write a normal report during a
+successful dry run, the app writes `report.txt` from the captured scanner output. A dry run might
+not produce `sbom.json`.
 
 ## S3 Scans
 
@@ -94,6 +106,20 @@ python3 main.py
 For compatibility with standard ModelAudit/AWS clients, the app forwards `AWS_SECRET_KEY_ID` as
 `AWS_SECRET_ACCESS_KEY` when the standard variable is not already set, and maps `S3_HOST_BASE` to
 `AWS_ENDPOINT_URL` when `AWS_ENDPOINT_URL` is not already set.
+
+The app also sets container `HOME=/work` and `XDG_CACHE_HOME=/work/.cache` so any incidental
+tooling writes stay under the mounted job directory instead of the image user's `/nonexistent`
+home directory.
+
+## JFrog Hosts
+
+For self-hosted JFrog domains, upstream ModelAudit requires
+`MODELAUDIT_JFROG_ALLOWED_HOSTS`. If this env var is not already set, the app infers it from
+`JFROG_URL`. You can still override it explicitly:
+
+```bash
+export MODELAUDIT_JFROG_ALLOWED_HOSTS="artifactory.example.corp"
+```
 
 ## Passing Extra Env Vars Into The Container
 

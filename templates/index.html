@@ -21,6 +21,31 @@
         required
         autocomplete="off"
       >
+      <fieldset class="scan-options">
+        <legend>Scanner options</legend>
+        <input type="hidden" name="show_progress" value="off">
+        <label class="checkbox-option">
+          <input type="checkbox" name="show_progress" value="on" checked>
+          <span>
+            <strong>Show progress</strong>
+            <small>Adds <code>--progress</code></small>
+          </span>
+        </label>
+        <label class="checkbox-option">
+          <input type="checkbox" name="debug" value="on">
+          <span>
+            <strong>Show debug info</strong>
+            <small>Adds <code>--verbose</code></small>
+          </span>
+        </label>
+        <label class="checkbox-option">
+          <input type="checkbox" name="dry_run" value="on">
+          <span>
+            <strong>Dry run</strong>
+            <small>Adds <code>--dry-run</code></small>
+          </span>
+        </label>
+      </fieldset>
       <button type="submit">Start Scan</button>
     </form>
   </section>
@@ -46,8 +71,8 @@
 
     <article class="card info-card">
       <p class="eyebrow">Artifacts</p>
-      <h2>2 files</h2>
-      <p>Each scan produces <code>report.txt</code> and <code>sbom.json</code>.</p>
+      <h2>Report + SBOM</h2>
+      <p>Normal scans produce <code>report.txt</code> and <code>sbom.json</code>. Dry runs produce a diagnostic report and log.</p>
     </article>
   </section>
 
